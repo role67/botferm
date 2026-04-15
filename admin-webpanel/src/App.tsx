@@ -1,14 +1,17 @@
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { getAdminApiToken, setAdminApiToken, subscribeAdminApiTokenChange } from "@/lib/auth";
 import DashboardPage from "./pages/DashboardPage";
 import UsersPage from "./pages/UsersPage";
 import KeysPage from "./pages/KeysPage";
 import SessionsPage from "./pages/SessionsPage";
 import TasksPage from "./pages/TasksPage";
 import AuditPage from "./pages/AuditPage";
+import LoginPage from "./pages/LoginPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -24,24 +27,55 @@ const queryClient = new QueryClient({
   },
 });
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/keys" element={<KeysPage />} />
-          <Route path="/sessions" element={<SessionsPage />} />
-          <Route path="/tasks" element={<TasksPage />} />
-          <Route path="/audit" element={<AuditPage />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(getAdminApiToken()));
+
+  useEffect(() => {
+    return subscribeAdminApiTokenChange(() => {
+      setIsAuthenticated(Boolean(getAdminApiToken()));
+      queryClient.clear();
+    });
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            {isAuthenticated ? (
+              <>
+                <Route path="/login" element={<Navigate to="/" replace />} />
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/users" element={<UsersPage />} />
+                <Route path="/keys" element={<KeysPage />} />
+                <Route path="/sessions" element={<SessionsPage />} />
+                <Route path="/tasks" element={<TasksPage />} />
+                <Route path="/audit" element={<AuditPage />} />
+                <Route path="*" element={<NotFound />} />
+              </>
+            ) : (
+              <>
+                <Route
+                  path="/login"
+                  element={
+                    <LoginPage
+                      onSubmit={(token) => {
+                        setAdminApiToken(token);
+                        setIsAuthenticated(true);
+                      }}
+                    />
+                  }
+                />
+                <Route path="*" element={<Navigate to="/login" replace />} />
+              </>
+            )}
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;

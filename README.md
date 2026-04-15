@@ -26,7 +26,11 @@ HEALTH_NOTIFY_CHAT_ID=...
 MIN_DELAY_SECONDS=2
 MAX_COUNT=100
 MAX_RETRIES=3
+ADMIN_API_TOKEN=...
 ```
+
+If `ADMIN_API_ENABLED=true`, `ADMIN_API_TOKEN` is required.  
+All admin API endpoints except `/health` require this token via `Authorization: Bearer <token>` (or `X-Admin-Token`).
 
 ## Runtime Data
 

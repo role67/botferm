@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Key,
   LayoutDashboard,
@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 
 import { useHealth } from "@/hooks/useApi";
+import { clearAdminApiToken } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/" },
@@ -51,6 +53,7 @@ function ConnectionStatus() {
 
 export function AdminSidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   return (
     <aside className="w-64 min-h-screen flex flex-col border-r border-border bg-sidebar shrink-0">
@@ -89,6 +92,18 @@ export function AdminSidebar() {
       <div className="px-5 py-4 border-t border-border space-y-1">
         <ConnectionStatus />
         <p className="text-xs text-muted-foreground/50">Local admin API</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-3 w-full"
+          onClick={() => {
+            clearAdminApiToken();
+            navigate("/login");
+          }}
+        >
+          Log out
+        </Button>
       </div>
     </aside>
   );

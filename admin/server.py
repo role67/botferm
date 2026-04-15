@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import threading
 from datetime import datetime, timezone
@@ -62,6 +63,7 @@ class AdminApiService:
         task_queue: TaskQueue,
         session_store: PostgresSessionStore | None,
         logs_dir: Path,
+        token: str,
     ) -> None:
         self.loop = loop
         self.access_manager = access_manager
@@ -69,6 +71,7 @@ class AdminApiService:
         self.task_queue = task_queue
         self.session_store = session_store
         self.logs_dir = logs_dir
+        self.token = token
 
     def run_coro(self, coro: Any, *, timeout: float = 30.0) -> Any:
         future = asyncio.run_coroutine_threadsafe(coro, self.loop)
@@ -349,36 +352,52 @@ def create_app(service: AdminApiService) -> FastAPI:
     async def handle_admin_error(_request: Request, exc: AdminApiError) -> JSONResponse:
         return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
 
+    def require_admin_auth(request: Request) -> None:
+        bearer = request.headers.get("Authorization", "")
+        custom = request.headers.get("X-Admin-Token", "")
+        candidate = custom.strip()
+        if bearer.lower().startswith("bearer "):
+            candidate = bearer[7:].strip()
+        if not candidate or not hmac.compare_digest(candidate, service.token):
+            raise AdminApiError("Unauthorized", HTTPStatus.UNAUTHORIZED)
+
     @app.get("/health")
     def get_health() -> dict[str, Any]:
         return service.health()
 
     @app.get("/dashboard")
-    def get_dashboard() -> dict[str, Any]:
+    def get_dashboard(request: Request) -> dict[str, Any]:
+        require_admin_auth(request)
         return service.dashboard()
 
     @app.get("/users")
-    def get_users() -> list[dict[str, Any]]:
+    def get_users(request: Request) -> list[dict[str, Any]]:
+        require_admin_auth(request)
         return service.users()
 
     @app.get("/keys")
-    def get_keys() -> list[dict[str, Any]]:
+    def get_keys(request: Request) -> list[dict[str, Any]]:
+        require_admin_auth(request)
         return service.keys()
 
     @app.get("/sessions")
-    def get_sessions() -> list[dict[str, Any]]:
+    def get_sessions(request: Request) -> list[dict[str, Any]]:
+        require_admin_auth(request)
         return service.sessions()
 
     @app.get("/tasks")
-    def get_tasks() -> list[dict[str, Any]]:
+    def get_tasks(request: Request) -> list[dict[str, Any]]:
+        require_admin_auth(request)
         return service.tasks()
 
     @app.get("/audit")
-    def get_audit(limit: int = Query(default=200, ge=1, le=1000)) -> list[dict[str, Any]]:
+    def get_audit(request: Request, limit: int = Query(default=200, ge=1, le=1000)) -> list[dict[str, Any]]:
+        require_admin_auth(request)
         return service.audit(limit=limit)
 
     @app.get("/sessions/{session_name}/export")
-    def export_session(session_name: str) -> Response:
+    def export_session(session_name: str, request: Request) -> Response:
+        require_admin_auth(request)
         payload, filename, content_type = service.export_session(session_name)
         return Response(
             content=payload,
@@ -387,7 +406,8 @@ def create_app(service: AdminApiService) -> FastAPI:
         )
 
     @app.post("/commands")
-    def post_command(payload: dict[str, Any]) -> dict[str, Any]:
+    def post_command(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+        require_admin_auth(request)
         return service.command(payload)
 
     return app
@@ -399,6 +419,7 @@ class AdminApiServer:
         *,
         host: str,
         port: int,
+        token: str,
         loop: asyncio.AbstractEventLoop,
         access_manager: AccessManager,
         account_manager: AccountManager,
@@ -408,6 +429,7 @@ class AdminApiServer:
     ) -> None:
         self.host = host
         self.port = int(port)
+        self.token = token
         self._service = AdminApiService(
             loop=loop,
             access_manager=access_manager,
@@ -415,6 +437,7 @@ class AdminApiServer:
             task_queue=task_queue,
             session_store=session_store,
             logs_dir=logs_dir,
+            token=self.token,
         )
         self._server = uvicorn.Server(
             uvicorn.Config(

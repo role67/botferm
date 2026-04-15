@@ -17,6 +17,7 @@ from config import (
     ADMIN_API_ENABLED,
     ADMIN_API_HOST,
     ADMIN_API_PORT,
+    ADMIN_API_TOKEN,
     BOT_TOKEN,
     DATABASE_URL,
     DEFAULT_API_HASH,
@@ -144,6 +145,7 @@ async def run() -> None:
         admin_api = AdminApiServer(
             host=ADMIN_API_HOST,
             port=ADMIN_API_PORT,
+            token=ADMIN_API_TOKEN,
             loop=asyncio.get_running_loop(),
             access_manager=access_manager,
             account_manager=account_manager,

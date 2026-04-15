@@ -9,8 +9,10 @@ import type {
   TasksResponse,
   UsersResponse,
 } from "@/types/api";
+import { clearAdminApiToken, getAdminApiToken } from "@/lib/auth";
 
 const BASE_URL = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000";
+const ADMIN_API_TOKEN_FALLBACK = (import.meta.env.VITE_ADMIN_API_TOKEN as string) || "";
 
 class ApiError extends Error {
   status: number;
@@ -23,15 +25,23 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getAdminApiToken() || ADMIN_API_TOKEN_FALLBACK;
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
     ...options,
   });
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      clearAdminApiToken();
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
     let message = `HTTP ${response.status}`;
     try {
       const body = await response.json();
@@ -46,8 +56,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function download(path: string): Promise<Blob> {
-  const response = await fetch(`${BASE_URL}${path}`);
+  const token = getAdminApiToken() || ADMIN_API_TOKEN_FALLBACK;
+  const response = await fetch(`${BASE_URL}${path}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      clearAdminApiToken();
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
     throw new ApiError(`HTTP ${response.status}`, response.status);
   }
   return response.blob();
