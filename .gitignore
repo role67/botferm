@@ -57,3 +57,11 @@ Thumbs.db
 
 # Local agent metadata
 .kilo/
+
+# Extra temp dirs
+.tmp_voip/
+
+# Frontend (admin-webpanel)
+admin-webpanel/node_modules/
+admin-webpanel/dist/
+admin-webpanel/.env

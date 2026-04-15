@@ -115,5 +115,5 @@ MAX_COUNT = _env_int("MAX_COUNT", 100) or 100
 MAX_RETRIES = _env_int("MAX_RETRIES", 3) or 3
 
 ADMIN_API_ENABLED = _env_bool("ADMIN_API_ENABLED", True)
-ADMIN_API_HOST = _env_str("ADMIN_API_HOST", "127.0.0.1")
-ADMIN_API_PORT = _env_int("ADMIN_API_PORT", 8000) or 8000
+ADMIN_API_HOST = _env_str("ADMIN_API_HOST", "0.0.0.0")
+ADMIN_API_PORT = _env_int("ADMIN_API_PORT", _env_int("PORT", 8000)) or 8000
