@@ -74,8 +74,28 @@ async function download(path: string): Promise<Blob> {
   return response.blob();
 }
 
+async function verifyToken(token: string): Promise<void> {
+  const response = await fetch(`${BASE_URL}/auth/check`, {
+    headers: {
+      Authorization: `Bearer ${token.trim()}`,
+    },
+  });
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      message = body?.detail ?? body?.message ?? message;
+    } catch {
+      // Ignore JSON parse errors.
+    }
+    throw new ApiError(message, response.status);
+  }
+}
+
 export const api = {
   getHealth: () => request<HealthResponse>("/health"),
+  verifyToken,
   getDashboard: () => request<DashboardStats>("/dashboard"),
   getUsers: () => request<UsersResponse>("/users"),
   getKeys: () => request<KeysResponse>("/keys"),

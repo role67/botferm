@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type LoginPageProps = {
-  onSubmit: (token: string) => void;
+  onSubmit: (token: string) => Promise<void>;
 };
 
 export default function LoginPage({ onSubmit }: LoginPageProps) {
   const [token, setToken] = useState("");
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
@@ -22,9 +24,17 @@ export default function LoginPage({ onSubmit }: LoginPageProps) {
 
         <form
           className="space-y-3"
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            onSubmit(token);
+            setError("");
+            setIsLoading(true);
+            try {
+              await onSubmit(token);
+            } catch (submitError) {
+              setError((submitError as Error)?.message || "Invalid admin token");
+            } finally {
+              setIsLoading(false);
+            }
           }}
         >
           <Input
@@ -34,9 +44,10 @@ export default function LoginPage({ onSubmit }: LoginPageProps) {
             onChange={(event) => setToken(event.target.value)}
             autoFocus
           />
-          <Button type="submit" className="w-full" disabled={!token.trim()}>
-            Sign in
+          <Button type="submit" className="w-full" disabled={!token.trim() || isLoading}>
+            {isLoading ? "Checking..." : "Sign in"}
           </Button>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </form>
       </div>
     </div>

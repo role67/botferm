@@ -5,6 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getAdminApiToken, setAdminApiToken, subscribeAdminApiTokenChange } from "@/lib/auth";
+import { api } from "@/lib/api";
 import DashboardPage from "./pages/DashboardPage";
 import UsersPage from "./pages/UsersPage";
 import KeysPage from "./pages/KeysPage";
@@ -61,7 +62,8 @@ const App = () => {
                   path="/login"
                   element={
                     <LoginPage
-                      onSubmit={(token) => {
+                      onSubmit={async (token) => {
+                        await api.verifyToken(token);
                         setAdminApiToken(token);
                         setIsAuthenticated(true);
                       }}

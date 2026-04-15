@@ -365,6 +365,11 @@ def create_app(service: AdminApiService) -> FastAPI:
     def get_health() -> dict[str, Any]:
         return service.health()
 
+    @app.get("/auth/check")
+    def get_auth_check(request: Request) -> dict[str, Any]:
+        require_admin_auth(request)
+        return {"ok": True}
+
     @app.get("/dashboard")
     def get_dashboard(request: Request) -> dict[str, Any]:
         require_admin_auth(request)
