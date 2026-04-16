@@ -21,13 +21,13 @@ from telethon.errors import (
 )
 from telethon import events
 from telethon.tl import functions, types
+from telethon.tl.functions.account import UpdateNotifySettingsRequest
 from telethon.tl.functions.channels import GetParticipantRequest, JoinChannelRequest, LeaveChannelRequest
 from telethon.tl.functions.messages import (
     ImportChatInviteRequest,
     SendReactionRequest,
     SendVoteRequest,
     StartBotRequest,
-    UpdateNotifySettingsRequest,
 )
 from telethon.tl.types import MessageEntitySpoiler
 
