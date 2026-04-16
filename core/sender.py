@@ -483,7 +483,7 @@ async def _mute_dialog_notifications(current_client, target: str) -> None:
     )
     await current_client(
         UpdateNotifySettingsRequest(
-            peer=peer,
+            peer=types.InputNotifyPeer(peer=peer),
             settings=settings,
         )
     )
