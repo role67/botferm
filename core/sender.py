@@ -235,9 +235,12 @@ def extract_invite_hash(link: str) -> str | None:
 
 
 def extract_public_channel(link: str) -> str:
-    if link.startswith("@"):
-        return link
-    parsed = urlparse(prepare_telegram_url(link))
+    raw = str(link or "").strip()
+    if raw.startswith("@"):
+        return raw
+    if re.fullmatch(r"-?\d{5,20}", raw):
+        return raw
+    parsed = urlparse(prepare_telegram_url(raw))
     if parsed.netloc not in _TELEGRAM_HOSTS:
         raise ValueError("Unsupported Telegram link.")
     parts = [part for part in parsed.path.split("/") if part]
@@ -1399,6 +1402,24 @@ async def join_with_retry(self, client, link: str, invite_hash: str | None, mana
 
 
 async def leave_with_retry(self, client, link: str, invite_hash: str | None, managed: ManagedClient, task_control=None) -> None:
+    if invite_hash:
+        invite_info = await self._run_with_retry_on_client(
+            client=client,
+            operation_name=f"resolve invite {invite_hash}",
+            coro_factory=lambda current_client, invite=invite_hash: current_client(functions.messages.CheckChatInviteRequest(hash=invite)),
+            managed=managed,
+            task_control=task_control,
+        )
+        if isinstance(invite_info, types.ChatInviteAlready):
+            await self._run_with_retry_on_client(
+                client=client,
+                operation_name="leave invite chat",
+                coro_factory=lambda current_client, target=invite_info.chat: current_client(LeaveChannelRequest(target)),
+                managed=managed,
+                task_control=task_control,
+            )
+            return
+        raise ValueError("Аккаунт не состоит в чате по этой приватной ссылке.")
     channel = extract_public_channel(link)
     await self._run_with_retry_on_client(
         client=client,
@@ -1411,7 +1432,17 @@ async def leave_with_retry(self, client, link: str, invite_hash: str | None, man
 
 async def is_already_joined(self, client, link: str, invite_hash: str | None, managed: ManagedClient, task_control=None) -> bool:
     if invite_hash:
-        return False
+        try:
+            invite_info = await self._run_with_retry_on_client(
+                client=client,
+                operation_name=f"check invite membership {invite_hash}",
+                coro_factory=lambda current_client, invite=invite_hash: current_client(functions.messages.CheckChatInviteRequest(hash=invite)),
+                managed=managed,
+                task_control=task_control,
+            )
+            return isinstance(invite_info, types.ChatInviteAlready)
+        except Exception:
+            return False
     channel = extract_public_channel(link)
     try:
         me = await client.get_me()

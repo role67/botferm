@@ -823,10 +823,11 @@ def _format_chat_id(chat_obj: object) -> str | None:
     chat_id = getattr(chat_obj, "id", None)
     if chat_id is None:
         return None
-    # For channels/supergroups Telegram uses -100 prefix in bot/user-facing IDs.
-    if isinstance(chat_obj, types.Channel):
-        return f"-100{int(chat_id)}"
-    return str(int(chat_id))
+    value = int(chat_id)
+    if value < 0:
+        return str(value)
+    # Prefer bot-facing peer ID format expected by users.
+    return f"-100{value}"
 
 
 async def _try_resolve_group_id_from_invite_link(
