@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import uvicorn
 from fastapi import FastAPI, Query, Request
@@ -26,6 +27,7 @@ from core.queue import TaskQueue
 from core.session_store import PostgresSessionStore
 
 logger = logging.getLogger(__name__)
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 
 class AdminApiError(Exception):
@@ -43,7 +45,7 @@ def _iso_datetime(value: float | None) -> str | None:
 def _format_display_datetime(value: float | None) -> str | None:
     if not value:
         return None
-    return datetime.fromtimestamp(value).strftime("%m.%d.%Y, %H:%M:%S")
+    return datetime.fromtimestamp(value, tz=timezone.utc).astimezone(MOSCOW_TZ).strftime("%m.%d.%Y, %H:%M:%S")
 
 
 def _format_display_iso_datetime(value: str | None) -> str | None:
@@ -53,7 +55,9 @@ def _format_display_iso_datetime(value: str | None) -> str | None:
         parsed = datetime.fromisoformat(str(value))
     except ValueError:
         return str(value)
-    return parsed.strftime("%m.%d.%Y, %H:%M:%S")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(MOSCOW_TZ).strftime("%m.%d.%Y, %H:%M:%S")
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
