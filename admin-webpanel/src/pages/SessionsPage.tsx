@@ -89,18 +89,8 @@ const columns = [
     render: (row: Session) => <StatusBadge status={row.pool} />,
   },
   {
-    key: "warmup_progress_percent",
-    label: "Warmup",
-    render: (row: Session) => (
-      <div className="min-w-[110px]">
-        <p className="font-mono text-xs">{row.warmup_progress_percent}%</p>
-        <p className="text-xs text-muted-foreground">Day {row.warmup_day || 0}</p>
-      </div>
-    ),
-  },
-  {
     key: "last_error",
-    label: "Last issue",
+    label: "Last error",
     render: (row: Session) => (
       <span className={row.last_error ? "font-mono text-xs text-destructive" : "text-muted-foreground text-xs"}>
         {row.last_error ?? "-"}
@@ -124,7 +114,7 @@ export default function SessionsPage() {
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Sessions</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Session health, warmup state and direct export from admin API.
+            Session health, lifecycle state and direct export from admin API.
           </p>
         </div>
 

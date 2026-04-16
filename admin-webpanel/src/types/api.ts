@@ -66,8 +66,6 @@ export interface Session {
   username: string;
   first_name: string;
   available_for_tasks: boolean;
-  warmup_day: number;
-  warmup_progress_percent: number;
 }
 
 export type SessionsResponse = Session[];
