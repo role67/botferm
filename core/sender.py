@@ -22,7 +22,13 @@ from telethon.errors import (
 from telethon import events
 from telethon.tl import functions, types
 from telethon.tl.functions.channels import GetParticipantRequest, JoinChannelRequest, LeaveChannelRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest, SendReactionRequest, SendVoteRequest, StartBotRequest
+from telethon.tl.functions.messages import (
+    ImportChatInviteRequest,
+    SendReactionRequest,
+    SendVoteRequest,
+    StartBotRequest,
+    UpdateNotifySettingsRequest,
+)
 from telethon.tl.types import MessageEntitySpoiler
 
 from core.access_manager import AccessManager
@@ -450,6 +456,7 @@ async def send_messages(
 
 
 async def _send_message_payload(current_client, target: str, text: str, photo_path: str, hide_content: bool):
+    await _mute_dialog_notifications(current_client, target)
     if photo_path:
         # For media messages, -h should hide media via Telegram's media spoiler.
         # Caption text remains plain unless it is a text-only message.
@@ -464,6 +471,22 @@ async def _send_message_payload(current_client, target: str, text: str, photo_pa
             return await current_client.send_message(target, parsed_text, formatting_entities=entities)
         return await current_client.send_message(target, parsed_text)
     raise ValueError("Text or photo is required for sending.")
+
+
+async def _mute_dialog_notifications(current_client, target: str) -> None:
+    peer = await current_client.get_input_entity(target)
+    # Keep notifications disabled as long as Telegram accepts large mute_until values.
+    settings = types.InputPeerNotifySettings(
+        show_previews=False,
+        silent=True,
+        mute_until=2_147_483_647,
+    )
+    await current_client(
+        UpdateNotifySettingsRequest(
+            peer=peer,
+            settings=settings,
+        )
+    )
 
 
 def _prepare_hidden_text(text: str, hide_content: bool) -> tuple[str, list[MessageEntitySpoiler]]:
@@ -605,50 +628,68 @@ async def send_to_bot(self, bot_username: str, command: str, accounts_count: int
     success = 0
     failed = 0
     used_accounts = min(accounts_count, len(managed_clients))
+    selected_accounts = self._shuffle_managed_clients(managed_clients)[:used_accounts]
     total_steps = used_accounts * repeat_count
-    permanent_failures: set[str] = set()
-    current_step = 0
-    account_batches = self._build_balanced_account_batches(
-        managed_clients=managed_clients,
-        batch_size=used_accounts,
-        batch_count=repeat_count,
-    )
-    raw_steps: list[tuple[ManagedClient, int]] = []
-    for repeat_index, batch in enumerate(account_batches, start=1):
-        for managed in batch:
-            raw_steps.append((managed, repeat_index))
-    for managed, repeat_index in raw_steps:
-        await self._checkpoint(task_control)
-        current_step += 1
-        if managed.session_name in permanent_failures:
-            status_text = "SKIP after permanent failure"
+    progress_lock = asyncio.Lock()
+    progress_step = 0
+
+    async def _next_step() -> int:
+        nonlocal progress_step
+        async with progress_lock:
+            progress_step += 1
+            return progress_step
+
+    async def _send_for_account(managed: ManagedClient) -> tuple[int, int]:
+        account_success = 0
+        account_failed = 0
+        permanent_failure = False
+        for repeat_index in range(1, repeat_count + 1):
+            await self._checkpoint(task_control)
+            step = await _next_step()
+            if permanent_failure:
+                if progress_cb is not None:
+                    await progress_cb(
+                        f"MSGBOT [{step}/{total_steps}] {username} | repeat {repeat_index}/{repeat_count} | {managed.session_name} - SKIP after permanent failure"
+                    )
+                continue
+            status_text = "OK sent"
+            try:
+                await self._run_with_retry_on_client(
+                    client=managed.client,
+                    operation_name=f"send to bot {username}",
+                    coro_factory=lambda current_client, u=username, c=command: _send_message_payload(current_client, u, c, "", False),
+                    managed=managed,
+                    task_control=task_control,
+                )
+                account_success += 1
+            except TaskCancelledError:
+                raise
+            except PeerFloodError as exc:
+                account_failed += 1
+                status_text = f"WARN {format_error(exc)}"
+                logger.warning("Command send blocked by PeerFlood for %s: %s", username, exc)
+            except RPCError as exc:
+                account_failed += 1
+                if self._is_non_retryable_rpc_error(exc):
+                    permanent_failure = True
+                status_text = f"ERR {format_error(exc)}"
+                logger.exception("Failed to send command to bot %s", username)
+            except Exception:
+                account_failed += 1
+                status_text = "ERR not sent"
+                logger.exception("Failed to send command to bot %s", username)
             if progress_cb is not None:
-                await progress_cb(f"MSGBOT [{current_step}/{total_steps}] {username} | repeat {repeat_index}/{repeat_count} - {status_text}")
-            continue
-        status_text = "OK sent"
-        try:
-            await self._run_with_retry_on_client(client=managed.client, operation_name=f"send to bot {username}", coro_factory=lambda current_client, u=username, c=command: current_client.send_message(u, c), managed=managed, task_control=task_control)
-            success += 1
-        except TaskCancelledError:
-            raise
-        except PeerFloodError as exc:
-            failed += 1
-            status_text = f"WARN {format_error(exc)}"
-            logger.warning("Command send blocked by PeerFlood for %s: %s", username, exc)
-        except RPCError as exc:
-            failed += 1
-            if self._is_non_retryable_rpc_error(exc):
-                permanent_failures.add(managed.session_name)
-            status_text = f"ERR {format_error(exc)}"
-            logger.exception("Failed to send command to bot %s", username)
-        except Exception:
-            failed += 1
-            status_text = "ERR not sent"
-            logger.exception("Failed to send command to bot %s", username)
-        if progress_cb is not None:
-            await progress_cb(f"MSGBOT [{current_step}/{total_steps}] {username} | repeat {repeat_index}/{repeat_count} - {status_text}")
-        if current_step < total_steps:
-            await self._cooperative_sleep(task_control, self._sample_delay(normalized_delay))
+                await progress_cb(
+                    f"MSGBOT [{step}/{total_steps}] {username} | repeat {repeat_index}/{repeat_count} | {managed.session_name} - {status_text}"
+                )
+            if repeat_index < repeat_count:
+                await self._cooperative_sleep(task_control, self._sample_delay(normalized_delay))
+        return account_success, account_failed
+
+    results = await asyncio.gather(*[_send_for_account(managed) for managed in selected_accounts])
+    for account_success, account_failed in results:
+        success += account_success
+        failed += account_failed
     audit_event("sender.bot_messages_finished", message="Bot messaging finished", bot_username=username, used_accounts=used_accounts, repeat_count=repeat_count, success=success, failed=failed, requester_user_id=requester_user_id)
     return success, failed
 
