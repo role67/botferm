@@ -418,13 +418,17 @@ async def send_messages(
     for managed, target, repeat_index in raw_steps:
         await self._checkpoint(task_control)
         current_step += 1
+        account_name, account_ref = await describe_account(managed)
+        account_label = f"{account_name} ({format_account_ref(account_ref)})"
         failure_key = (managed.session_name, target)
         if failure_key in permanent_failures:
-            status_text = "SKIP after permanent failure"
+            status_text = "⏭️ Пропуск после критической ошибки"
             if progress_cb is not None:
-                await progress_cb(f"MSG [{current_step}/{total_steps}] {target} | repeat {repeat_index}/{repeat_count} - {status_text}")
+                await progress_cb(
+                    f"✉️ MSG [{current_step}/{total_steps}] | Аккаунт: {account_label} | Цель: {target} | Повтор: {repeat_index}/{repeat_count} | {status_text}"
+                )
             continue
-        status_text = "OK sent"
+        status_text = "✅ Отправлено"
         try:
             await self._run_with_retry_on_client(
                 client=managed.client,
@@ -438,20 +442,22 @@ async def send_messages(
             raise
         except PeerFloodError as exc:
             failed += 1
-            status_text = f"WARN {format_error(exc)}"
+            status_text = f"⚠️ Ограничение Telegram: {format_error(exc)}"
             logger.warning("Send blocked by PeerFlood for %s: %s", target, exc)
         except RPCError as exc:
             failed += 1
             if self._is_non_retryable_rpc_error(exc):
                 permanent_failures.add(failure_key)
-            status_text = f"ERR {format_error(exc)}"
+            status_text = f"❌ Ошибка Telegram: {format_error(exc)}"
             logger.exception("Failed to send message to %s", target)
-        except Exception:
+        except Exception as exc:
             failed += 1
-            status_text = "ERR not sent"
+            status_text = f"❌ Не отправлено: {format_error(exc)}"
             logger.exception("Failed to send message to %s", target)
         if progress_cb is not None:
-            await progress_cb(f"MSG [{current_step}/{total_steps}] {target} | repeat {repeat_index}/{repeat_count} - {status_text}")
+            await progress_cb(
+                f"✉️ MSG [{current_step}/{total_steps}] | Аккаунт: {account_label} | Цель: {target} | Повтор: {repeat_index}/{repeat_count} | {status_text}"
+            )
         if current_step < total_steps:
             await self._cooperative_sleep(task_control, self._sample_delay(normalized_delay))
     audit_event("sender.messages_finished", message="Bulk message sending finished", targets=targets, used_accounts=used_accounts, repeat_count=repeat_count, success=success, failed=failed, requester_user_id=requester_user_id)
