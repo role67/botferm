@@ -460,18 +460,18 @@ async def send_messages(
 
 async def _send_message_payload(current_client, target: str, text: str, photo_path: str, hide_content: bool):
     resolved_target = await _resolve_message_target(current_client, target)
-    await _mute_dialog_notifications(current_client, resolved_target)
+    await _try_mute_dialog_notifications(current_client, resolved_target)
     if photo_path:
         # For media messages, -h should hide media via Telegram's media spoiler.
         # Caption text remains plain unless it is a text-only message.
         parsed_text = (text or "").strip()
         if hide_content:
             result = await _send_photo_with_spoiler(current_client, resolved_target, photo_path, parsed_text)
-            await _mute_dialog_notifications(current_client, resolved_target)
+            await _try_mute_dialog_notifications(current_client, resolved_target)
             return result
         send_kwargs = {"caption": parsed_text or None}
         result = await current_client.send_file(resolved_target, photo_path, **send_kwargs)
-        await _mute_dialog_notifications(current_client, resolved_target)
+        await _try_mute_dialog_notifications(current_client, resolved_target)
         return result
     parsed_text, entities = _prepare_hidden_text(text, hide_content)
     if parsed_text:
@@ -479,7 +479,7 @@ async def _send_message_payload(current_client, target: str, text: str, photo_pa
             result = await current_client.send_message(resolved_target, parsed_text, formatting_entities=entities)
         else:
             result = await current_client.send_message(resolved_target, parsed_text)
-        await _mute_dialog_notifications(current_client, resolved_target)
+        await _try_mute_dialog_notifications(current_client, resolved_target)
         return result
     raise ValueError("Text or photo is required for sending.")
 
@@ -487,6 +487,11 @@ async def _send_message_payload(current_client, target: str, text: str, photo_pa
 async def _resolve_message_target(current_client, target: str):
     invite_hash = extract_invite_hash(str(target))
     if not invite_hash:
+        raw_target = str(target).strip()
+        if re.fullmatch(r"-?\d{5,20}", raw_target):
+            resolved_entity = await _resolve_numeric_dialog_entity(current_client, raw_target)
+            if resolved_entity is not None:
+                return resolved_entity
         return target
     invite_info = await current_client(functions.messages.CheckChatInviteRequest(hash=invite_hash))
     if isinstance(invite_info, types.ChatInviteAlready):
@@ -494,27 +499,29 @@ async def _resolve_message_target(current_client, target: str):
     raise ValueError("Для отправки по приватной ссылке аккаунт должен быть уже в этом чате.")
 
 
+async def _resolve_numeric_dialog_entity(current_client, target) -> types.TypePeer | None:
+    raw_target = str(target).strip()
+    if not re.fullmatch(r"-?\d{5,20}", raw_target):
+        return None
+    normalized_target = int(raw_target)
+    async for dialog in current_client.iter_dialogs():
+        entity = getattr(dialog, "entity", None)
+        if entity is None:
+            continue
+        if isinstance(entity, types.Channel):
+            if int(f"-100{entity.id}") == normalized_target or int(entity.id) == abs(normalized_target):
+                return entity
+        elif isinstance(entity, types.Chat):
+            if -int(entity.id) == normalized_target or int(entity.id) == abs(normalized_target):
+                return entity
+    return None
+
+
 async def _mute_dialog_notifications(current_client, target) -> None:
     try:
         peer = await current_client.get_input_entity(target)
     except Exception:
-        raw_target = str(target).strip()
-        if not re.fullmatch(r"-?\d{5,20}", raw_target):
-            raise
-        normalized_target = int(raw_target)
-        resolved_entity = None
-        async for dialog in current_client.iter_dialogs():
-            entity = getattr(dialog, "entity", None)
-            if entity is None:
-                continue
-            if isinstance(entity, types.Channel):
-                if int(f"-100{entity.id}") == normalized_target or int(entity.id) == abs(normalized_target):
-                    resolved_entity = entity
-                    break
-            elif isinstance(entity, types.Chat):
-                if -int(entity.id) == normalized_target or int(entity.id) == abs(normalized_target):
-                    resolved_entity = entity
-                    break
+        resolved_entity = await _resolve_numeric_dialog_entity(current_client, target)
         if resolved_entity is None:
             raise ValueError(f"Cannot find any entity corresponding to \"{target}\"")
         peer = await current_client.get_input_entity(resolved_entity)
@@ -530,6 +537,13 @@ async def _mute_dialog_notifications(current_client, target) -> None:
             settings=settings,
         )
     )
+
+
+async def _try_mute_dialog_notifications(current_client, target) -> None:
+    try:
+        await _mute_dialog_notifications(current_client, target)
+    except Exception:
+        logger.warning("Failed to mute notifications for target %s", target, exc_info=True)
 
 
 async def _mute_join_target_notifications(current_client, *, link: str, invite_hash: str | None) -> None:
