@@ -456,24 +456,35 @@ async def send_messages(
 
 
 async def _send_message_payload(current_client, target: str, text: str, photo_path: str, hide_content: bool):
-    await _mute_dialog_notifications(current_client, target)
+    resolved_target = await _resolve_message_target(current_client, target)
+    await _mute_dialog_notifications(current_client, resolved_target)
     if photo_path:
         # For media messages, -h should hide media via Telegram's media spoiler.
         # Caption text remains plain unless it is a text-only message.
         parsed_text = (text or "").strip()
         if hide_content:
-            return await _send_photo_with_spoiler(current_client, target, photo_path, parsed_text)
+            return await _send_photo_with_spoiler(current_client, resolved_target, photo_path, parsed_text)
         send_kwargs = {"caption": parsed_text or None}
-        return await current_client.send_file(target, photo_path, **send_kwargs)
+        return await current_client.send_file(resolved_target, photo_path, **send_kwargs)
     parsed_text, entities = _prepare_hidden_text(text, hide_content)
     if parsed_text:
         if entities:
-            return await current_client.send_message(target, parsed_text, formatting_entities=entities)
-        return await current_client.send_message(target, parsed_text)
+            return await current_client.send_message(resolved_target, parsed_text, formatting_entities=entities)
+        return await current_client.send_message(resolved_target, parsed_text)
     raise ValueError("Text or photo is required for sending.")
 
 
-async def _mute_dialog_notifications(current_client, target: str) -> None:
+async def _resolve_message_target(current_client, target: str):
+    invite_hash = extract_invite_hash(str(target))
+    if not invite_hash:
+        return target
+    invite_info = await current_client(functions.messages.CheckChatInviteRequest(hash=invite_hash))
+    if isinstance(invite_info, types.ChatInviteAlready):
+        return invite_info.chat
+    raise ValueError("Для отправки по приватной ссылке аккаунт должен быть уже в этом чате.")
+
+
+async def _mute_dialog_notifications(current_client, target) -> None:
     peer = await current_client.get_input_entity(target)
     # Keep notifications disabled as long as Telegram accepts large mute_until values.
     settings = types.InputPeerNotifySettings(

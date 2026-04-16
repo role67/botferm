@@ -175,6 +175,10 @@ def normalize_username(value: str) -> str:
 
 def normalize_chat_target(value: str) -> str:
     raw = value.strip().strip(",")
+    prepared = prepare_telegram_url(raw)
+    invite_match = re.search(r"(?:(?:t|telegram)\.me/(?:joinchat/|\+))([A-Za-z0-9_-]+)", prepared, flags=re.IGNORECASE)
+    if invite_match:
+        return f"https://t.me/+{invite_match.group(1)}"
     if raw.startswith("@"):
         return normalize_username(raw)
     raw = re.sub(r"^https?://(?:www\.)?(?:t|telegram)\.me/", "", raw, flags=re.IGNORECASE)

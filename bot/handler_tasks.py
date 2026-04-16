@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import asyncio
+import re
 import tempfile
 import uuid
 from html import escape
@@ -9,6 +10,7 @@ from pathlib import Path
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
+from telethon.tl import functions, types
 
 from bot.command_parsing import (
     extract_payload as _extract_payload,
@@ -187,7 +189,23 @@ def _register_task_command_slices(router: Router, ctx: HandlerContext) -> None:
             return
         record = await task_service.enqueue_task(task_queue, spec, requested_by_user_id=message.from_user.id)
         command = join_presenter.command if join_presenter is not None else "/join"
-        await reply_task_created(message, task_queue, ctx.access_manager, task_id=record.id, command=command, accounts_count=spec.count)
+        extra_lines: list[str] = []
+        group_id = await _try_resolve_group_id_from_invite_link(
+            spec.link,
+            account_manager=ctx.account_manager,
+            owner_ids=await ctx.access_manager.visible_account_owner_ids(message.from_user.id),
+        )
+        if group_id is not None:
+            extra_lines.append(f"ID группы: <b>{group_id}</b>")
+        await reply_task_created(
+            message,
+            task_queue,
+            ctx.access_manager,
+            task_id=record.id,
+            command=command,
+            accounts_count=spec.count,
+            extra_lines=extra_lines,
+        )
 
     @router.message(Command("leave"))
     async def leave_handler(message: Message) -> None:
@@ -794,6 +812,40 @@ async def _download_message_photo(message: Message) -> str:
     destination = MESSAGE_MEDIA_DIR / f"msg_{message.chat.id}_{message.message_id}_{uuid.uuid4().hex}{suffix}"
     await message.bot.download(largest, destination=destination)
     return str(destination)
+
+
+def _extract_invite_hash_from_link(link: str) -> str | None:
+    match = re.search(r"(?:(?:t|telegram)\.me/(?:joinchat/|\+))([A-Za-z0-9_-]+)", str(link or ""), flags=re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _format_chat_id(chat_obj: object) -> str | None:
+    chat_id = getattr(chat_obj, "id", None)
+    if chat_id is None:
+        return None
+    # For channels/supergroups Telegram uses -100 prefix in bot/user-facing IDs.
+    if isinstance(chat_obj, types.Channel):
+        return f"-100{int(chat_id)}"
+    return str(int(chat_id))
+
+
+async def _try_resolve_group_id_from_invite_link(
+    link: str,
+    *,
+    account_manager,
+    owner_ids: set[int] | None,
+) -> str | None:
+    invite_hash = _extract_invite_hash_from_link(link)
+    if not invite_hash:
+        return None
+    try:
+        client = await account_manager.next_client(owner_ids=owner_ids)
+        invite_info = await client(functions.messages.CheckChatInviteRequest(hash=invite_hash))
+    except Exception:
+        return None
+    if isinstance(invite_info, types.ChatInviteAlready):
+        return _format_chat_id(invite_info.chat)
+    return None
 
 
 async def _handle_pending_action(message: Message, ctx: HandlerContext, pending, session_store) -> None:
