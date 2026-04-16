@@ -43,7 +43,17 @@ def _iso_datetime(value: float | None) -> str | None:
 def _format_display_datetime(value: float | None) -> str | None:
     if not value:
         return None
-    return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(value).strftime("%m.%d.%Y, %H:%M:%S")
+
+
+def _format_display_iso_datetime(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+    return parsed.strftime("%m.%d.%Y, %H:%M:%S")
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -251,7 +261,7 @@ class AdminApiService:
                     if isinstance(payload, dict)
                     else "system",
                     "target": str(target),
-                    "timestamp": str(row.get("ts") or ""),
+                    "timestamp": _format_display_iso_datetime(str(row.get("ts") or "")) or "",
                     "level": str(row.get("level") or "INFO"),
                     "message": str(row.get("message") or ""),
                 }

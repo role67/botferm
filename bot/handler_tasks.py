@@ -765,6 +765,20 @@ async def _handle_task_action(callback: CallbackQuery, ctx: HandlerContext, acti
     requester_user_id = getattr(callback.from_user, "id", 0)
     include_all = await ctx.access_manager.can_view_all_tasks(requester_user_id)
     ok, text = await action(task_id, requested_by_user_id=requester_user_id, include_all=include_all)
+    if (
+        not ok
+        and "не найдена" in str(text).lower()
+        and callback.message is not None
+    ):
+        resolved_task_id = await ctx.task_queue.find_task_id_by_status_message(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            requested_by_user_id=requester_user_id,
+            include_all=include_all,
+        )
+        if resolved_task_id is not None and resolved_task_id != task_id:
+            task_id = resolved_task_id
+            ok, text = await action(task_id, requested_by_user_id=requester_user_id, include_all=include_all)
     await safe_callback_answer(callback, text=text, show_alert=not ok)
     stop_task_manager_live_view(ctx, callback.message)
     await render_task_detail(callback.message, ctx.task_queue, task_id, requester_user_id=requester_user_id, include_all=include_all)

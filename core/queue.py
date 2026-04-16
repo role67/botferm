@@ -542,6 +542,29 @@ class TaskQueue:
                 "current_task_id": next((record.id for record in records if record.id == self._current_task_id), None),
             }
 
+    async def find_task_id_by_status_message(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        requested_by_user_id: int | None = None,
+        include_all: bool = False,
+    ) -> int | None:
+        async with self._condition:
+            for record in self._records.values():
+                if int(record.status_message_chat_id or 0) != int(chat_id):
+                    continue
+                if int(record.status_message_id or 0) != int(message_id):
+                    continue
+                if not self._record_visible_to(
+                    record,
+                    requested_by_user_id=requested_by_user_id,
+                    include_all=include_all,
+                ):
+                    continue
+                return int(record.id)
+            return None
+
     def _serialize_record(self, record: TaskRecord) -> dict:
         active_queue_ids = [
             task_id
