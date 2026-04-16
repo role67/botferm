@@ -463,14 +463,21 @@ async def _send_message_payload(current_client, target: str, text: str, photo_pa
         # Caption text remains plain unless it is a text-only message.
         parsed_text = (text or "").strip()
         if hide_content:
-            return await _send_photo_with_spoiler(current_client, resolved_target, photo_path, parsed_text)
+            result = await _send_photo_with_spoiler(current_client, resolved_target, photo_path, parsed_text)
+            await _mute_dialog_notifications(current_client, resolved_target)
+            return result
         send_kwargs = {"caption": parsed_text or None}
-        return await current_client.send_file(resolved_target, photo_path, **send_kwargs)
+        result = await current_client.send_file(resolved_target, photo_path, **send_kwargs)
+        await _mute_dialog_notifications(current_client, resolved_target)
+        return result
     parsed_text, entities = _prepare_hidden_text(text, hide_content)
     if parsed_text:
         if entities:
-            return await current_client.send_message(resolved_target, parsed_text, formatting_entities=entities)
-        return await current_client.send_message(resolved_target, parsed_text)
+            result = await current_client.send_message(resolved_target, parsed_text, formatting_entities=entities)
+        else:
+            result = await current_client.send_message(resolved_target, parsed_text)
+        await _mute_dialog_notifications(current_client, resolved_target)
+        return result
     raise ValueError("Text or photo is required for sending.")
 
 
@@ -498,6 +505,19 @@ async def _mute_dialog_notifications(current_client, target) -> None:
             settings=settings,
         )
     )
+
+
+async def _mute_join_target_notifications(current_client, *, link: str, invite_hash: str | None) -> None:
+    try:
+        if invite_hash:
+            invite_info = await current_client(functions.messages.CheckChatInviteRequest(hash=invite_hash))
+            if isinstance(invite_info, types.ChatInviteAlready):
+                await _mute_dialog_notifications(current_client, invite_info.chat)
+            return
+        channel = extract_public_channel(link)
+        await _mute_dialog_notifications(current_client, channel)
+    except Exception:
+        logger.warning("Failed to mute notifications after join for %s", link, exc_info=True)
 
 
 def _prepare_hidden_text(text: str, hide_content: bool) -> tuple[str, list[MessageEntitySpoiler]]:
@@ -888,10 +908,12 @@ async def join_chat(self, link: str, count: int = 1, delay_cap: float = 1.5, pro
                 already_joined += 1
                 should_report = False
                 await self.account_manager.mark_alive(managed.session_name, dc_id=extract_dc_id(managed))
+                await _mute_join_target_notifications(managed.client, link=link, invite_hash=invite_hash)
                 if joined < requested_count and attempted_accounts < total_available:
                     await self._cooperative_sleep(task_control, self._sample_delay(normalized_delay_cap))
                 continue
             await self._join_with_retry(client=managed.client, link=link, invite_hash=invite_hash, managed=managed, task_control=task_control)
+            await _mute_join_target_notifications(managed.client, link=link, invite_hash=invite_hash)
             joined += 1
             progress_index = joined
             await self.account_manager.mark_alive(managed.session_name, dc_id=extract_dc_id(managed))
@@ -900,6 +922,7 @@ async def join_chat(self, link: str, count: int = 1, delay_cap: float = 1.5, pro
         except UserAlreadyParticipantError:
             already_joined += 1
             should_report = False
+            await _mute_join_target_notifications(managed.client, link=link, invite_hash=invite_hash)
         except (InviteHashInvalidError, InviteHashExpiredError):
             status_icon = "ERR"
             status_text = "invite invalid"
