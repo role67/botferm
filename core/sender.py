@@ -947,12 +947,12 @@ async def join_chat(self, link: str, count: int = 1, delay_cap: float = 1.5, pro
 
     result_text = (
         "JOIN completed.\n"
-        f"Link: <code>{escape(link)}</code>\n"
-        f"Requested new joins: <b>{requested_count}</b>\n"
-        f"Accounts checked: <b>{attempted_accounts}</b>\n"
-        f"New joins: <b>{joined}</b>\n"
-        f"Skipped (already inside): <b>{already_joined}</b>\n"
-        f"Errors: <b>{failed}</b>"
+        f"Link: {link}\n"
+        f"Requested new joins: {requested_count}\n"
+        f"Accounts checked: {attempted_accounts}\n"
+        f"New joins: {joined}\n"
+        f"Skipped (already inside): {already_joined}\n"
+        f"Errors: {failed}"
     )
     audit_event("sender.join_finished", message="Join operation finished", link=link, requested_count=requested_count, attempted_accounts=attempted_accounts, joined=joined, already_joined=already_joined, failed=failed, requester_user_id=requester_user_id)
     return result_text
@@ -1103,12 +1103,12 @@ async def leave_chat(self, link: str, count: int = 1, delay_cap: float = 1.5, pr
 
     result_text = (
         "LEAVE completed.\n"
-        f"Link: <code>{escape(link)}</code>\n"
-        f"Requested leaves: <b>{requested_count}</b>\n"
-        f"Accounts checked: <b>{attempted_accounts}</b>\n"
-        f"New leaves: <b>{left}</b>\n"
-        f"Skipped (already outside): <b>{already_left}</b>\n"
-        f"Errors: <b>{failed}</b>"
+        f"Link: {link}\n"
+        f"Requested leaves: {requested_count}\n"
+        f"Accounts checked: {attempted_accounts}\n"
+        f"New leaves: {left}\n"
+        f"Skipped (already outside): {already_left}\n"
+        f"Errors: {failed}"
     )
     audit_event("sender.leave_finished", message="Leave operation finished", link=link, requested_count=requested_count, attempted_accounts=attempted_accounts, left=left, already_left=already_left, failed=failed, requester_user_id=requester_user_id)
     return result_text
