@@ -1402,6 +1402,61 @@ async def join_with_retry(self, client, link: str, invite_hash: str | None, mana
 
 
 async def leave_with_retry(self, client, link: str, invite_hash: str | None, managed: ManagedClient, task_control=None) -> None:
+    async def _leave_resolved_target(target_entity) -> None:
+        if isinstance(target_entity, types.Channel):
+            await self._run_with_retry_on_client(
+                client=client,
+                operation_name="leave channel target",
+                coro_factory=lambda current_client, target=target_entity: current_client(LeaveChannelRequest(target)),
+                managed=managed,
+                task_control=task_control,
+            )
+            return
+        if isinstance(target_entity, types.Chat):
+            me = await self._run_with_retry_on_client(
+                client=client,
+                operation_name="resolve self for leave",
+                coro_factory=lambda current_client: current_client.get_input_entity("me"),
+                managed=managed,
+                task_control=task_control,
+            )
+            await self._run_with_retry_on_client(
+                client=client,
+                operation_name="leave basic group target",
+                coro_factory=lambda current_client, chat_id=target_entity.id, me_user=me: current_client(
+                    functions.messages.DeleteChatUserRequest(chat_id=chat_id, user_id=me_user, revoke_history=False)
+                ),
+                managed=managed,
+                task_control=task_control,
+            )
+            return
+        raise ValueError("Unsupported chat target type for leave.")
+
+    async def _resolve_target_entity(raw_target: str):
+        try:
+            return await self._run_with_retry_on_client(
+                client=client,
+                operation_name=f"resolve target {raw_target}",
+                coro_factory=lambda current_client, target=raw_target: current_client.get_entity(target),
+                managed=managed,
+                task_control=task_control,
+            )
+        except Exception:
+            if not re.fullmatch(r"-?\d{5,20}", str(raw_target or "").strip()):
+                raise
+            normalized_target = int(str(raw_target).strip())
+            async for dialog in client.iter_dialogs():
+                entity = getattr(dialog, "entity", None)
+                if entity is None:
+                    continue
+                if isinstance(entity, types.Channel):
+                    if int(f"-100{entity.id}") == normalized_target or int(entity.id) == abs(normalized_target):
+                        return entity
+                elif isinstance(entity, types.Chat):
+                    if -int(entity.id) == normalized_target or int(entity.id) == abs(normalized_target):
+                        return entity
+            raise ValueError(f"Cannot find any entity corresponding to \"{raw_target}\"")
+
     if invite_hash:
         invite_info = await self._run_with_retry_on_client(
             client=client,
@@ -1411,23 +1466,12 @@ async def leave_with_retry(self, client, link: str, invite_hash: str | None, man
             task_control=task_control,
         )
         if isinstance(invite_info, types.ChatInviteAlready):
-            await self._run_with_retry_on_client(
-                client=client,
-                operation_name="leave invite chat",
-                coro_factory=lambda current_client, target=invite_info.chat: current_client(LeaveChannelRequest(target)),
-                managed=managed,
-                task_control=task_control,
-            )
+            await _leave_resolved_target(invite_info.chat)
             return
         raise ValueError("Аккаунт не состоит в чате по этой приватной ссылке.")
     channel = extract_public_channel(link)
-    await self._run_with_retry_on_client(
-        client=client,
-        operation_name=f"leave channel {channel}",
-        coro_factory=lambda current_client, target=channel: current_client(LeaveChannelRequest(target)),
-        managed=managed,
-        task_control=task_control,
-    )
+    target_entity = await _resolve_target_entity(channel)
+    await _leave_resolved_target(target_entity)
 
 
 async def is_already_joined(self, client, link: str, invite_hash: str | None, managed: ManagedClient, task_control=None) -> bool:
@@ -1445,17 +1489,57 @@ async def is_already_joined(self, client, link: str, invite_hash: str | None, ma
             return False
     channel = extract_public_channel(link)
     try:
-        me = await client.get_me()
-        await self._run_with_retry_on_client(
+        target_entity = await self._run_with_retry_on_client(
             client=client,
-            operation_name=f"check membership {channel}",
-            coro_factory=lambda current_client, target=channel, participant=me: current_client(
-                GetParticipantRequest(channel=target, participant=participant)
-            ),
+            operation_name=f"resolve membership target {channel}",
+            coro_factory=lambda current_client, target=channel: current_client.get_entity(target),
             managed=managed,
             task_control=task_control,
         )
-        return True
+    except Exception:
+        if not re.fullmatch(r"-?\d{5,20}", str(channel or "").strip()):
+            return False
+        normalized_target = int(str(channel).strip())
+        target_entity = None
+        async for dialog in client.iter_dialogs():
+            entity = getattr(dialog, "entity", None)
+            if entity is None:
+                continue
+            if isinstance(entity, types.Channel):
+                if int(f"-100{entity.id}") == normalized_target or int(entity.id) == abs(normalized_target):
+                    target_entity = entity
+                    break
+            elif isinstance(entity, types.Chat):
+                if -int(entity.id) == normalized_target or int(entity.id) == abs(normalized_target):
+                    target_entity = entity
+                    break
+        if target_entity is None:
+            return False
+    try:
+        if isinstance(target_entity, types.Channel):
+            me = await client.get_me()
+            await self._run_with_retry_on_client(
+                client=client,
+                operation_name=f"check channel membership {channel}",
+                coro_factory=lambda current_client, target=target_entity, participant=me: current_client(
+                    GetParticipantRequest(channel=target, participant=participant)
+                ),
+                managed=managed,
+                task_control=task_control,
+            )
+            return True
+        if isinstance(target_entity, types.Chat):
+            await self._run_with_retry_on_client(
+                client=client,
+                operation_name=f"check chat membership {channel}",
+                coro_factory=lambda current_client, chat_id=target_entity.id: current_client(
+                    functions.messages.GetFullChatRequest(chat_id=chat_id)
+                ),
+                managed=managed,
+                task_control=task_control,
+            )
+            return True
+        return False
     except UserNotParticipantError:
         return False
     except RPCError:
