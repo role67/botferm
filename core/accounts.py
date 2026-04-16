@@ -812,15 +812,26 @@ class AccountManager:
         session_name = session.replace(".session", "").strip()
         entry = self._find_config_entry(session_name)
         if entry is None:
-            return False
+            if not any(managed.session_name == session_name for managed in self._clients):
+                return False
+            health_status = self._health_states.setdefault(session_name, HealthState()).status
+            return self._effective_account_state(ACCOUNT_STATE_ACTIVE, health_status) == ACCOUNT_STATE_ACTIVE
         health_status = self._health_states.setdefault(session_name, HealthState()).status
         return self._effective_account_state(str(entry.get("state", ACCOUNT_STATE_ACTIVE)).upper(), health_status) == ACCOUNT_STATE_ACTIVE
 
     def _account_lifecycle_snapshot(self, session: str, *, health_status: str) -> dict[str, object]:
         entry = self._find_config_entry(session)
         if entry is None:
-            effective_state = self._effective_account_state(ACCOUNT_STATE_DEAD, health_status)
-            return {"state": effective_state, "raw_state": ACCOUNT_STATE_DEAD, "state_label": self._account_state_label(effective_state), "state_icon": self._account_state_icon(effective_state), "available_for_tasks": False}
+            has_runtime_session = any(managed.session_name == session.replace(".session", "").strip() for managed in self._clients)
+            raw_state = ACCOUNT_STATE_ACTIVE if has_runtime_session else ACCOUNT_STATE_DEAD
+            effective_state = self._effective_account_state(raw_state, health_status)
+            return {
+                "state": effective_state,
+                "raw_state": raw_state,
+                "state_label": self._account_state_label(effective_state),
+                "state_icon": self._account_state_icon(effective_state),
+                "available_for_tasks": effective_state == ACCOUNT_STATE_ACTIVE,
+            }
         raw_state = str(entry.get("state", ACCOUNT_STATE_ACTIVE)).upper()
         effective_state = self._effective_account_state(raw_state, health_status)
         return {"state": effective_state, "raw_state": raw_state, "state_label": self._account_state_label(effective_state), "state_icon": self._account_state_icon(effective_state), "available_for_tasks": effective_state == ACCOUNT_STATE_ACTIVE}
