@@ -523,7 +523,8 @@ async def _mute_dialog_notifications(current_client, target) -> None:
     except Exception:
         resolved_entity = await _resolve_numeric_dialog_entity(current_client, target)
         if resolved_entity is None:
-            raise ValueError(f"Cannot find any entity corresponding to \"{target}\"")
+            logger.warning("Cannot resolve entity for mute target %s", target)
+            return
         peer = await current_client.get_input_entity(resolved_entity)
     # Keep notifications disabled as long as Telegram accepts large mute_until values.
     settings = types.InputPeerNotifySettings(
