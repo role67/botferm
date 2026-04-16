@@ -833,8 +833,8 @@ async def call_user(
                 )
                 return (
                     "ERR /call stopped.\n"
-                    f"Target: <b>{escape(username)}</b>\n"
-                    f"Reason: <b>{escape(error_text)}</b>\n"
+                    f"Target: {username}\n"
+                    f"Reason: {error_text}\n"
                     "Calls to this user are unavailable (privacy/settings/restriction)."
                 )
             status_text = f"ERR {error_text}"
@@ -865,13 +865,13 @@ async def call_user(
     )
     return (
         "OK /call finished.\n"
-        f"Target: <b>{escape(username)}</b>\n"
-        f"Requested accounts: <b>{accounts_count}</b>\n"
-        f"Used accounts: <b>{used_accounts}</b>\n"
-        f"Cycles: <b>{repeat_count}</b>\n"
-        f"Calls sent: <b>{success}</b>\n"
-        f"Answered and hung up: <b>{answered}</b>\n"
-        f"Errors: <b>{failed}</b>"
+        f"Target: {username}\n"
+        f"Requested accounts: {accounts_count}\n"
+        f"Used accounts: {used_accounts}\n"
+        f"Cycles: {repeat_count}\n"
+        f"Calls sent: {success}\n"
+        f"Answered and hung up: {answered}\n"
+        f"Errors: {failed}"
     )
 
 
@@ -1004,9 +1004,9 @@ async def react_to_post(self, link: str, count: int, delay: DelayWindow, emojis:
                 allowed_reactions = await load_allowed_reactions(managed.client, peer_ref, msg_id)
                 return (
                     "ERR /likep остановлен.\n"
-                    f"Запрошенная реакция: <b>{escape(chosen_reaction)}</b>\n"
+                    f"Запрошенная реакция: {chosen_reaction}\n"
                     "Telegram отклонил эту реакцию для целевого поста.\n"
-                    f"Доступные реакции: <code>{escape(format_allowed_reactions(allowed_reactions))}</code>"
+                    f"Доступные реакции: {format_allowed_reactions(allowed_reactions)}"
                 )
             status_text = "ERR reaction not sent"
             error_text = format_error(exc)
@@ -1025,13 +1025,13 @@ async def react_to_post(self, link: str, count: int, delay: DelayWindow, emojis:
 
     result_text = (
         "OK /likep finished.\n"
-        f"Link: <code>{escape(link)}</code>\n"
-        f"Reaction pool: <b>{escape(', '.join(reaction_pool))}</b>\n"
-        f"Requested accounts: <b>{count}</b>\n"
-        f"Delay: <b>{escape(str(normalized_delay))}</b>\n"
-        f"Used accounts: <b>{used_accounts}</b>\n"
-        f"Reactions sent: <b>{success}</b>\n"
-        f"Errors: <b>{failed}</b>"
+        f"Link: {link}\n"
+        f"Reaction pool: {', '.join(reaction_pool)}\n"
+        f"Requested accounts: {count}\n"
+        f"Delay: {normalized_delay}\n"
+        f"Used accounts: {used_accounts}\n"
+        f"Reactions sent: {success}\n"
+        f"Errors: {failed}"
     )
     audit_event("sender.reactions_finished", message="Reaction sending finished", link=link, count=count, delay=normalized_delay, emojis=reaction_pool, used_accounts=used_accounts, success=success, failed=failed, requester_user_id=requester_user_id)
     return result_text
@@ -1160,13 +1160,13 @@ async def follow_referral(self, link: str, count: int, delay: float, progress_cb
 
     result_text = (
         "OK /refp finished.\n"
-        f"Link: <code>{escape(link)}</code>\n"
-        f"Bot: <b>{escape(bot_username)}</b>\n"
-        f"Start param: <code>{escape(start_param)}</code>\n"
-        f"Requested accounts: <b>{count}</b>\n"
-        f"Used accounts: <b>{used_accounts}</b>\n"
-        f"Successful referrals: <b>{success}</b>\n"
-        f"Errors: <b>{failed}</b>"
+        f"Link: {link}\n"
+        f"Bot: {bot_username}\n"
+        f"Start param: {start_param}\n"
+        f"Requested accounts: {count}\n"
+        f"Used accounts: {used_accounts}\n"
+        f"Successful referrals: {success}\n"
+        f"Errors: {failed}"
     )
     audit_event("sender.referral_finished", message="Referral start finished", link=link, bot_username=bot_username, start_param=start_param, count=count, used_accounts=used_accounts, success=success, failed=failed, requester_user_id=requester_user_id)
     return result_text
@@ -1230,12 +1230,12 @@ async def vote_in_poll(self, link: str, option_index: int, count: int, delay: fl
 
     result_text = (
         "OK /vote finished.\n"
-        f"Link: <code>{escape(link)}</code>\n"
-        f"Option: <b>{option_index}</b>{f' ({escape(option_label)})' if option_label and option_label != str(option_index) else ''}\n"
-        f"Requested accounts: <b>{count}</b>\n"
-        f"Used accounts: <b>{used_accounts if not invalid_poll else min(used_accounts, success + failed)}</b>\n"
-        f"Votes sent: <b>{success}</b>\n"
-        f"Errors: <b>{failed}</b>"
+        f"Link: {link}\n"
+        f"Option: {option_index}{f' ({option_label})' if option_label and option_label != str(option_index) else ''}\n"
+        f"Requested accounts: {count}\n"
+        f"Used accounts: {used_accounts if not invalid_poll else min(used_accounts, success + failed)}\n"
+        f"Votes sent: {success}\n"
+        f"Errors: {failed}"
     )
     audit_event("sender.vote_finished", message="Poll voting finished", link=link, option_index=option_index, count=count, used_accounts=used_accounts, success=success, failed=failed, requester_user_id=requester_user_id)
     return result_text
