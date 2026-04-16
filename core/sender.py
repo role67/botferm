@@ -495,7 +495,29 @@ async def _resolve_message_target(current_client, target: str):
 
 
 async def _mute_dialog_notifications(current_client, target) -> None:
-    peer = await current_client.get_input_entity(target)
+    try:
+        peer = await current_client.get_input_entity(target)
+    except Exception:
+        raw_target = str(target).strip()
+        if not re.fullmatch(r"-?\d{5,20}", raw_target):
+            raise
+        normalized_target = int(raw_target)
+        resolved_entity = None
+        async for dialog in current_client.iter_dialogs():
+            entity = getattr(dialog, "entity", None)
+            if entity is None:
+                continue
+            if isinstance(entity, types.Channel):
+                if int(f"-100{entity.id}") == normalized_target or int(entity.id) == abs(normalized_target):
+                    resolved_entity = entity
+                    break
+            elif isinstance(entity, types.Chat):
+                if -int(entity.id) == normalized_target or int(entity.id) == abs(normalized_target):
+                    resolved_entity = entity
+                    break
+        if resolved_entity is None:
+            raise ValueError(f"Cannot find any entity corresponding to \"{target}\"")
+        peer = await current_client.get_input_entity(resolved_entity)
     # Keep notifications disabled as long as Telegram accepts large mute_until values.
     settings = types.InputPeerNotifySettings(
         show_previews=False,
