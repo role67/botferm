@@ -12,7 +12,6 @@ import type {
 import { clearAdminApiToken, getAdminApiToken } from "@/lib/auth";
 
 const BASE_URL = (import.meta.env.VITE_API_URL as string) || "http://localhost:8000";
-const ADMIN_API_TOKEN_FALLBACK = (import.meta.env.VITE_ADMIN_API_TOKEN as string) || "";
 
 class ApiError extends Error {
   status: number;
@@ -25,7 +24,7 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getAdminApiToken() || ADMIN_API_TOKEN_FALLBACK;
+  const token = getAdminApiToken();
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
@@ -56,7 +55,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function download(path: string): Promise<Blob> {
-  const token = getAdminApiToken() || ADMIN_API_TOKEN_FALLBACK;
+  const token = getAdminApiToken();
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

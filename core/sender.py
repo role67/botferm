@@ -61,7 +61,7 @@ async def describe_account(managed: ManagedClient) -> tuple[str, str]:
         if not managed.client.is_connected():
             await managed.client.connect()
         me = await asyncio.wait_for(managed.client.get_me(), timeout=5)
-    except Exception:
+    except (RPCError, OSError, asyncio.TimeoutError):
         return fallback, fallback
     if me is None:
         return fallback, fallback
@@ -310,7 +310,7 @@ def parse_public_message_link(link: str) -> tuple[str, int]:
 def extract_dc_id(managed: ManagedClient) -> int | None:
     try:
         return getattr(managed.client.session, "dc_id", None)
-    except Exception:
+    except AttributeError:
         return None
 
 
@@ -340,7 +340,7 @@ def is_reaction_invalid_error(exc: RPCError) -> bool:
 async def load_allowed_reactions(client, peer_ref: str, msg_id: int) -> set[str]:
     try:
         message = await client.get_messages(peer_ref, ids=msg_id)
-    except Exception:
+    except (RPCError, OSError, asyncio.TimeoutError):
         return set()
     reactions_info = getattr(message, "reactions", None)
     results = getattr(reactions_info, "results", None) or []
@@ -526,7 +526,7 @@ async def _resolve_numeric_dialog_entity(current_client, target) -> types.TypePe
 async def _mute_dialog_notifications(current_client, target) -> None:
     try:
         peer = await current_client.get_input_entity(target)
-    except Exception:
+    except (RPCError, ValueError, OSError):
         resolved_entity = await _resolve_numeric_dialog_entity(current_client, target)
         if resolved_entity is None:
             logger.warning("Cannot resolve entity for mute target %s", target)
@@ -549,7 +549,7 @@ async def _mute_dialog_notifications(current_client, target) -> None:
 async def _try_mute_dialog_notifications(current_client, target) -> None:
     try:
         await _mute_dialog_notifications(current_client, target)
-    except Exception:
+    except (RPCError, ValueError, OSError):
         logger.warning("Failed to mute notifications for target %s", target, exc_info=True)
 
 
@@ -562,7 +562,7 @@ async def _mute_join_target_notifications(current_client, *, link: str, invite_h
             return
         channel = extract_public_channel(link)
         await _mute_dialog_notifications(current_client, channel)
-    except Exception:
+    except (RPCError, ValueError, OSError):
         logger.warning("Failed to mute notifications after join for %s", link, exc_info=True)
 
 
@@ -1484,7 +1484,7 @@ async def leave_with_retry(self, client, link: str, invite_hash: str | None, man
                 managed=managed,
                 task_control=task_control,
             )
-        except Exception:
+        except (RPCError, ValueError, OSError):
             if not re.fullmatch(r"-?\d{5,20}", str(raw_target or "").strip()):
                 raise
             normalized_target = int(str(raw_target).strip())
@@ -1528,7 +1528,7 @@ async def is_already_joined(self, client, link: str, invite_hash: str | None, ma
                 task_control=task_control,
             )
             return isinstance(invite_info, types.ChatInviteAlready)
-        except Exception:
+        except (RPCError, ValueError, OSError):
             return False
     channel = extract_public_channel(link)
     try:
@@ -1539,7 +1539,7 @@ async def is_already_joined(self, client, link: str, invite_hash: str | None, ma
             managed=managed,
             task_control=task_control,
         )
-    except Exception:
+    except (RPCError, ValueError, OSError):
         if not re.fullmatch(r"-?\d{5,20}", str(channel or "").strip()):
             return False
         normalized_target = int(str(channel).strip())

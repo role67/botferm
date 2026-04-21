@@ -48,6 +48,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _env_csv(name: str, default: str = "") -> list[str]:
+    raw = _env_str(name, default)
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _env_required_str(name: str) -> str:
     value = _env_str(name)
     if not value:
@@ -118,3 +125,21 @@ ADMIN_API_ENABLED = _env_bool("ADMIN_API_ENABLED", True)
 ADMIN_API_HOST = _env_str("ADMIN_API_HOST", "0.0.0.0")
 ADMIN_API_PORT = _env_int("ADMIN_API_PORT", _env_int("PORT", 8000)) or 8000
 ADMIN_API_TOKEN = _env_required_str("ADMIN_API_TOKEN") if ADMIN_API_ENABLED else ""
+ADMIN_API_AUTH_TOKENS = _env_csv("ADMIN_API_TOKENS")
+if ADMIN_API_ENABLED and not ADMIN_API_AUTH_TOKENS:
+    ADMIN_API_AUTH_TOKENS = [ADMIN_API_TOKEN]
+ADMIN_API_ALLOWED_ORIGINS = _env_csv(
+    "ADMIN_API_ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+)
+ADMIN_API_HEALTH_INCLUDE_LOGS = _env_bool("ADMIN_API_HEALTH_INCLUDE_LOGS", False)
+ADMIN_API_ALLOWED_IPS = _env_csv("ADMIN_API_ALLOWED_IPS")
+ADMIN_API_ENFORCE_HTTPS = _env_bool("ADMIN_API_ENFORCE_HTTPS", False)
+ADMIN_API_RATE_LIMIT_ENABLED = _env_bool("ADMIN_API_RATE_LIMIT_ENABLED", True)
+ADMIN_API_RATE_LIMIT_WINDOW_SECONDS = _env_int("ADMIN_API_RATE_LIMIT_WINDOW_SECONDS", 60) or 60
+ADMIN_API_RATE_LIMIT_MAX_REQUESTS = _env_int("ADMIN_API_RATE_LIMIT_MAX_REQUESTS", 120) or 120
+ADMIN_API_AUTH_RATE_LIMIT_MAX_ATTEMPTS = _env_int("ADMIN_API_AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20) or 20
+ADMIN_API_CSP = _env_str(
+    "ADMIN_API_CSP",
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+)

@@ -27,9 +27,20 @@ MIN_DELAY_SECONDS=2
 MAX_COUNT=100
 MAX_RETRIES=3
 ADMIN_API_TOKEN=...
+ADMIN_API_TOKENS=old_token,new_token
+ADMIN_API_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+ADMIN_API_HEALTH_INCLUDE_LOGS=false
+ADMIN_API_ALLOWED_IPS=203.0.113.10,198.51.100.0/24
+ADMIN_API_ENFORCE_HTTPS=true
+ADMIN_API_RATE_LIMIT_ENABLED=true
+ADMIN_API_RATE_LIMIT_WINDOW_SECONDS=60
+ADMIN_API_RATE_LIMIT_MAX_REQUESTS=120
+ADMIN_API_AUTH_RATE_LIMIT_MAX_ATTEMPTS=20
+ADMIN_API_CSP=default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
 ```
 
-If `ADMIN_API_ENABLED=true`, `ADMIN_API_TOKEN` is required.  
+If `ADMIN_API_ENABLED=true`, set either `ADMIN_API_TOKEN` or `ADMIN_API_TOKENS`.  
+For token rotation use `ADMIN_API_TOKENS` (comma-separated); all listed tokens are accepted.
 All admin API endpoints except `/health` require this token via `Authorization: Bearer <token>` (or `X-Admin-Token`).
 
 ## Runtime Data

@@ -2,8 +2,10 @@
 
 import asyncio
 import hmac
+import ipaddress
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
@@ -67,6 +69,56 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _extract_client_ip(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for", "") or "").strip()
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return str(request.client.host)
+    return "unknown"
+
+
+def _ip_allowed(ip_value: str, allowed_ips: set[str]) -> bool:
+    if not allowed_ips:
+        return True
+    try:
+        ip_obj = ipaddress.ip_address(ip_value)
+    except ValueError:
+        return False
+    for candidate in allowed_ips:
+        value = candidate.strip()
+        if not value:
+            continue
+        try:
+            if "/" in value:
+                if ip_obj in ipaddress.ip_network(value, strict=False):
+                    return True
+            elif ip_obj == ipaddress.ip_address(value):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+class SlidingWindowRateLimiter:
+    def __init__(self, *, window_seconds: int) -> None:
+        self.window_seconds = max(1, int(window_seconds))
+        self._storage: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, *, limit: int) -> bool:
+        now = time.monotonic()
+        lower_bound = now - self.window_seconds
+        with self._lock:
+            values = [value for value in self._storage.get(key, []) if value >= lower_bound]
+            if len(values) >= max(1, int(limit)):
+                self._storage[key] = values
+                return False
+            values.append(now)
+            self._storage[key] = values
+            return True
+
+
 class AdminApiService:
     def __init__(
         self,
@@ -77,7 +129,8 @@ class AdminApiService:
         task_queue: TaskQueue,
         session_store: PostgresSessionStore | None,
         logs_dir: Path,
-        token: str,
+        tokens: list[str],
+        health_include_logs: bool,
     ) -> None:
         self.loop = loop
         self.access_manager = access_manager
@@ -85,18 +138,21 @@ class AdminApiService:
         self.task_queue = task_queue
         self.session_store = session_store
         self.logs_dir = logs_dir
-        self.token = token
+        self.tokens = [item.strip() for item in tokens if item.strip()]
+        self.health_include_logs = bool(health_include_logs)
 
     def run_coro(self, coro: Any, *, timeout: float = 30.0) -> Any:
         future = asyncio.run_coroutine_threadsafe(coro, self.loop)
         return future.result(timeout=timeout)
 
     def health(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "ok": True,
             "uptime_seconds": process_uptime_seconds(),
-            "logs": list_log_files(self.logs_dir),
         }
+        if self.health_include_logs:
+            payload["logs"] = list_log_files(self.logs_dir)
+        return payload
 
     def dashboard(self) -> dict[str, Any]:
         users: list[AccessUser] = self.run_coro(self.access_manager.list_users())
@@ -352,15 +408,83 @@ class AdminApiService:
         raise AdminApiError(f"Unsupported command: {command_type}", HTTPStatus.NOT_IMPLEMENTED)
 
 
-def create_app(service: AdminApiService) -> FastAPI:
+def create_app(
+    service: AdminApiService,
+    *,
+    allowed_origins: list[str],
+    allowed_ips: set[str],
+    enforce_https: bool,
+    rate_limit_enabled: bool,
+    rate_limit_window_seconds: int,
+    rate_limit_max_requests: int,
+    auth_rate_limit_max_attempts: int,
+    csp_policy: str,
+) -> FastAPI:
     app = FastAPI(title="BotoFerma Admin API", version="1.0.0")
+    protected_paths = {
+        "/auth/check",
+        "/dashboard",
+        "/users",
+        "/keys",
+        "/sessions",
+        "/tasks",
+        "/audit",
+        "/commands",
+    }
+    global_limiter = SlidingWindowRateLimiter(window_seconds=rate_limit_window_seconds)
+    auth_limiter = SlidingWindowRateLimiter(window_seconds=rate_limit_window_seconds)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def security_middleware(request: Request, call_next):
+        if enforce_https:
+            proto = (request.headers.get("x-forwarded-proto", "") or "").split(",")[0].strip().lower()
+            scheme = request.url.scheme.lower()
+            is_https = proto == "https" or scheme == "https"
+            if not is_https:
+                redirect_url = str(request.url).replace("http://", "https://", 1)
+                return Response(
+                    status_code=HTTPStatus.TEMPORARY_REDIRECT,
+                    headers={"Location": redirect_url},
+                )
+
+        path = request.url.path
+        ip_value = _extract_client_ip(request)
+        is_protected = path in protected_paths or path.startswith("/sessions/")
+        if is_protected and not _ip_allowed(ip_value, allowed_ips):
+            audit_event(
+                "admin.auth_blocked_ip",
+                message="Admin API access blocked by IP allowlist",
+                path=path,
+                ip=ip_value,
+            )
+            return JSONResponse(status_code=HTTPStatus.FORBIDDEN, content={"detail": "Forbidden"})
+
+        if rate_limit_enabled and is_protected:
+            key = f"global:{ip_value}:{path}"
+            if not global_limiter.allow(key, limit=rate_limit_max_requests):
+                audit_event(
+                    "admin.rate_limited",
+                    message="Admin API request rate-limited",
+                    path=path,
+                    ip=ip_value,
+                )
+                return JSONResponse(status_code=HTTPStatus.TOO_MANY_REQUESTS, content={"detail": "Too Many Requests"})
+
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = csp_policy
+        return response
 
     @app.exception_handler(AdminApiError)
     async def handle_admin_error(_request: Request, exc: AdminApiError) -> JSONResponse:
@@ -372,7 +496,25 @@ def create_app(service: AdminApiService) -> FastAPI:
         candidate = custom.strip()
         if bearer.lower().startswith("bearer "):
             candidate = bearer[7:].strip()
-        if not candidate or not hmac.compare_digest(candidate, service.token):
+        ip_value = _extract_client_ip(request)
+        if rate_limit_enabled:
+            auth_key = f"auth:{ip_value}"
+            if not auth_limiter.allow(auth_key, limit=auth_rate_limit_max_attempts):
+                audit_event(
+                    "admin.auth_rate_limited",
+                    message="Admin auth attempts rate-limited",
+                    path=request.url.path,
+                    ip=ip_value,
+                )
+                raise AdminApiError("Too Many Requests", HTTPStatus.TOO_MANY_REQUESTS)
+        is_valid = bool(candidate) and any(hmac.compare_digest(candidate, token) for token in service.tokens)
+        if not is_valid:
+            audit_event(
+                "admin.auth_failed",
+                message="Admin auth failed",
+                path=request.url.path,
+                ip=ip_value,
+            )
             raise AdminApiError("Unauthorized", HTTPStatus.UNAUTHORIZED)
 
     @app.get("/health")
@@ -442,7 +584,16 @@ class AdminApiServer:
         *,
         host: str,
         port: int,
-        token: str,
+        tokens: list[str],
+        allowed_origins: list[str],
+        allowed_ips: list[str],
+        enforce_https: bool,
+        rate_limit_enabled: bool,
+        rate_limit_window_seconds: int,
+        rate_limit_max_requests: int,
+        auth_rate_limit_max_attempts: int,
+        csp_policy: str,
+        health_include_logs: bool,
         loop: asyncio.AbstractEventLoop,
         access_manager: AccessManager,
         account_manager: AccountManager,
@@ -452,7 +603,15 @@ class AdminApiServer:
     ) -> None:
         self.host = host
         self.port = int(port)
-        self.token = token
+        self.tokens = [item.strip() for item in tokens if item.strip()]
+        self.allowed_origins = [item.strip() for item in allowed_origins if item.strip()]
+        self.allowed_ips = {item.strip() for item in allowed_ips if item.strip()}
+        self.enforce_https = bool(enforce_https)
+        self.rate_limit_enabled = bool(rate_limit_enabled)
+        self.rate_limit_window_seconds = max(1, int(rate_limit_window_seconds))
+        self.rate_limit_max_requests = max(1, int(rate_limit_max_requests))
+        self.auth_rate_limit_max_attempts = max(1, int(auth_rate_limit_max_attempts))
+        self.csp_policy = csp_policy.strip() or "default-src 'none'; frame-ancestors 'none'"
         self._service = AdminApiService(
             loop=loop,
             access_manager=access_manager,
@@ -460,11 +619,22 @@ class AdminApiServer:
             task_queue=task_queue,
             session_store=session_store,
             logs_dir=logs_dir,
-            token=self.token,
+            tokens=self.tokens,
+            health_include_logs=health_include_logs,
         )
         self._server = uvicorn.Server(
             uvicorn.Config(
-                app=create_app(self._service),
+                app=create_app(
+                    self._service,
+                    allowed_origins=self.allowed_origins,
+                    allowed_ips=self.allowed_ips,
+                    enforce_https=self.enforce_https,
+                    rate_limit_enabled=self.rate_limit_enabled,
+                    rate_limit_window_seconds=self.rate_limit_window_seconds,
+                    rate_limit_max_requests=self.rate_limit_max_requests,
+                    auth_rate_limit_max_attempts=self.auth_rate_limit_max_attempts,
+                    csp_policy=self.csp_policy,
+                ),
                 host=self.host,
                 port=self.port,
                 log_level="warning",
