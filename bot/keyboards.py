@@ -194,7 +194,7 @@ def session_manager_keyboard(
         rows.append(nav_row)
 
     if accounts:
-        rows.append([InlineKeyboardButton(text="🗑 Удалить доступные", callback_data=f"acc:bulk_delete:{current_page}")])
+        rows.append([InlineKeyboardButton(text="🧹 Выборочное удаление", callback_data=f"acc:select_delete:{current_page}")])
 
     rows.append([InlineKeyboardButton(text="⬅️ К аккаунтам", callback_data="menu:accounts")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -374,13 +374,42 @@ def account_actions_keyboard(session: str, *, in_pool: bool, account_state: str,
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def bulk_account_delete_keyboard(*, page: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🗑 Да, удалить всё доступное", callback_data=f"acc:bulk_delete:confirm:{page}")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"acc:session_manager:page:{page}")],
-        ]
-    )
+def selective_account_delete_keyboard(
+    accounts: list[dict],
+    *,
+    selected_sessions: set[str],
+    page: int,
+    page_size: int,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    total_pages = max(1, math.ceil(len(accounts) / page_size))
+    current_page = min(max(1, page), total_pages)
+    start = (current_page - 1) * page_size
+    end = start + page_size
+    page_accounts = accounts[start:end]
+
+    for item in page_accounts:
+        session = str(item.get("session") or "")
+        selected = session in selected_sessions
+        marker = "☑️" if selected else "⬜"
+        state_icon = item.get("account_state_icon", "⚪")
+        health_icon = item.get("health_icon", "⚪")
+        pool_icon = "🟢" if item.get("in_pool", True) else "⛔"
+        text = f"{marker} {item['index']}. {item['username']} {state_icon}{health_icon}{pool_icon}"
+        rows.append([InlineKeyboardButton(text=text, callback_data=f"acc:select_delete:toggle:{current_page}:{session}")])
+
+    if total_pages > 1:
+        nav_row: list[InlineKeyboardButton] = []
+        if current_page > 1:
+            nav_row.append(InlineKeyboardButton(text="⬅️", callback_data=f"acc:select_delete:page:{current_page - 1}"))
+        nav_row.append(InlineKeyboardButton(text=f"{current_page}/{total_pages}", callback_data=f"acc:select_delete:page:{current_page}"))
+        if current_page < total_pages:
+            nav_row.append(InlineKeyboardButton(text="➡️", callback_data=f"acc:select_delete:page:{current_page + 1}"))
+        rows.append(nav_row)
+
+    rows.append([InlineKeyboardButton(text="🗑 Удалить выбранные", callback_data=f"acc:select_delete:confirm:{current_page}")])
+    rows.append([InlineKeyboardButton(text="❌ Отменить выборочное удаление", callback_data=f"acc:select_delete:cancel:{current_page}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def account_edit_keyboard(session: str, page: int) -> InlineKeyboardMarkup:

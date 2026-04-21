@@ -37,8 +37,8 @@ from bot.keyboards import (
     account_actions_keyboard,
     account_add_mode_keyboard,
     account_edit_keyboard,
-    bulk_account_delete_keyboard,
     help_back_keyboard,
+    selective_account_delete_keyboard,
     session_export_format_keyboard,
     session_export_scope_keyboard,
 )
@@ -178,11 +178,42 @@ def register_account_handlers(router: Router, ctx: HandlerContext) -> None:
     access_manager = ctx.access_manager
     pending_actions = ctx.pending_actions
     session_store = ctx.session_store
+    selective_delete_selection: dict[int, set[str]] = {}
 
     async def _visible_accounts(callback: CallbackQuery) -> list[dict]:
         return await account_manager.list_accounts_status(
             force_refresh=False,
             owner_ids=await access_manager.visible_account_owner_ids(getattr(callback.from_user, "id", 0)),
+        )
+
+    async def _render_selective_delete(callback: CallbackQuery, *, page: int) -> None:
+        if not callback.message:
+            return
+        accounts = await _visible_accounts(callback)
+        if not accounts:
+            await callback.message.edit_text(
+                "<b>Выборочное удаление</b>\n\n"
+                "Сейчас нет доступных аккаунтов для удаления.",
+                reply_markup=help_back_keyboard("acc:session_manager"),
+            )
+            return
+        user_id = getattr(callback.from_user, "id", 0)
+        selected = selective_delete_selection.setdefault(user_id, set())
+        available_sessions = {str(item.get("session") or "") for item in accounts}
+        selected.intersection_update(available_sessions)
+        await callback.message.edit_text(
+            "<b>🧹 Выборочное удаление аккаунтов</b>\n\n"
+            "Отметьте нужные аккаунты кнопками ниже.\n"
+            "☑️ — выбран для удаления\n"
+            "⬜ — не выбран\n\n"
+            f"Сейчас выбрано: <b>{len(selected)}</b>\n"
+            "После подтверждения удалятся записи из accounts.json, локальные .session и данные из Postgres (если включён).",
+            reply_markup=selective_account_delete_keyboard(
+                accounts,
+                selected_sessions=selected,
+                page=page,
+                page_size=10,
+            ),
         )
 
     @router.callback_query(F.data == "acc:session_manager")
@@ -522,8 +553,8 @@ def register_account_handlers(router: Router, ctx: HandlerContext) -> None:
             text = f"<b>Ошибка</b>: {escape(str(exc))}"
         await callback.message.edit_text(text, reply_markup=help_back_keyboard("acc:session_manager"))
 
-    @router.callback_query(F.data.startswith("acc:bulk_delete:"))
-    async def accounts_bulk_delete(callback: CallbackQuery) -> None:
+    @router.callback_query(F.data.startswith("acc:select_delete:"))
+    async def accounts_select_delete(callback: CallbackQuery) -> None:
         if not await ensure_accounts_menu_access(callback, access_manager):
             return
         if not callback.data or not callback.message:
@@ -531,33 +562,77 @@ def register_account_handlers(router: Router, ctx: HandlerContext) -> None:
             return
 
         parts = callback.data.split(":")
-        if len(parts) not in {3, 4}:
-            await safe_callback_answer(callback, text="Некорректная команда удаления.", show_alert=True)
+        if len(parts) == 3:
+            page = _parse_positive_int(parts[2], default=1)
+            await safe_callback_answer(callback, text="Открываю выборочное удаление...")
+            selective_delete_selection.pop(getattr(callback.from_user, "id", 0), None)
+            await _render_selective_delete(callback, page=page)
             return
 
-        page = _parse_positive_int(parts[-1], default=1)
-        action = parts[2]
-        accounts = await _visible_accounts(callback)
-        if not accounts:
-            await safe_callback_answer(callback, text="Нет аккаунтов для удаления.", show_alert=True)
+        action = parts[2] if len(parts) >= 3 else ""
+        page = _parse_positive_int(parts[3], default=1) if len(parts) >= 4 else 1
+        user_id = getattr(callback.from_user, "id", 0)
+        selected = selective_delete_selection.setdefault(user_id, set())
+
+        if action in {"page", "cancel"}:
+            await safe_callback_answer(callback)
+            if action == "cancel":
+                selective_delete_selection.pop(user_id, None)
+                await render_session_manager_with_progress(
+                    message=callback.message,
+                    account_manager=account_manager,
+                    access_manager=access_manager,
+                    requester_user_id=user_id,
+                    force_refresh=False,
+                    page=page,
+                )
+                return
+            await _render_selective_delete(callback, page=page)
+            return
+
+        if action == "toggle":
+            if len(parts) < 5:
+                await safe_callback_answer(callback, text="Не удалось определить аккаунт.", show_alert=True)
+                return
+            session = parts[4]
+            accounts = await _visible_accounts(callback)
+            available_sessions = {str(item.get("session") or "") for item in accounts}
+            if session not in available_sessions:
+                await safe_callback_answer(callback, text="Аккаунт недоступен.", show_alert=True)
+                return
+            if session in selected:
+                selected.remove(session)
+                await safe_callback_answer(callback, text="Убрано из выбора")
+            else:
+                selected.add(session)
+                await safe_callback_answer(callback, text="Добавлено в выбор")
+            await _render_selective_delete(callback, page=page)
             return
 
         if action == "confirm":
-            await safe_callback_answer(callback, text="Удаляю доступные аккаунты...")
+            accounts = await _visible_accounts(callback)
+            available_sessions = {str(item.get("session") or "") for item in accounts}
+            targets = [session for session in selected if session in available_sessions]
+            if not targets:
+                await safe_callback_answer(callback, text="Выберите хотя бы один аккаунт.", show_alert=True)
+                await _render_selective_delete(callback, page=page)
+                return
+            await safe_callback_answer(callback, text="Удаляю выбранные аккаунты...")
             try:
                 summary = await account_manager.delete_accounts(
-                    [str(item["session"]) for item in accounts],
+                    targets,
                     session_store=session_store,
                 )
             except Exception as exc:
                 await callback.message.edit_text(
                     f"<b>Ошибка</b>: {escape(str(exc))}",
-                    reply_markup=help_back_keyboard(f"acc:session_manager:page:{page}"),
+                    reply_markup=help_back_keyboard(f"acc:select_delete:{page}"),
                 )
                 return
-
+            selective_delete_selection.pop(user_id, None)
             await callback.message.edit_text(
-                "<b>Массовое удаление завершено</b>\n"
+                "<b>🧹 Выборочное удаление завершено</b>\n"
+                f"Выбрано к удалению: <b>{len(targets)}</b>\n"
                 f"Аккаунтов удалено: <b>{summary['accounts_deleted']}</b>\n"
                 f"Записей в accounts.json удалено: <b>{summary['config_entries_deleted']}</b>\n"
                 f"Локальных файлов .session удалено: <b>{summary['session_files_deleted']}</b>\n"
@@ -566,17 +641,7 @@ def register_account_handlers(router: Router, ctx: HandlerContext) -> None:
             )
             return
 
-        await safe_callback_answer(callback)
-        await callback.message.edit_text(
-            "<b>Массовое удаление аккаунтов</b>\n\n"
-            f"Будут удалены все видимые вам аккаунты: <b>{len(accounts)}</b>\n\n"
-            "Это действие удалит:\n"
-            "- записи из <code>accounts.json</code>\n"
-            "- локальные файлы <code>.session</code>\n"
-            "- копии из Postgres-хранилища сессий, если оно включено\n\n"
-            "Это действие нельзя отменить.",
-            reply_markup=bulk_account_delete_keyboard(page=page),
-        )
+        await safe_callback_answer(callback, text="Некорректная команда удаления.", show_alert=True)
 
     @router.callback_query(F.data == "acc:import")
     async def account_import(callback: CallbackQuery) -> None:
