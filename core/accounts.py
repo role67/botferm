@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -269,7 +269,7 @@ class AccountManager:
             and self._is_available_for_tasks(managed.session_name)
         ]
         if not pool_candidates:
-            raise RuntimeError("Нет доступных ACTIVE-аккаунтов в пуле.")
+            raise RuntimeError("РќРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… ACTIVE-Р°РєРєР°СѓРЅС‚РѕРІ РІ РїСѓР»Рµ.")
         target_count = len(pool_candidates) if limit is None else min(limit, len(pool_candidates))
         selected: list[ManagedClient] = []
         candidates = list(pool_candidates)
@@ -455,7 +455,7 @@ class AccountManager:
         session_name = session.replace(".session", "").strip()
         path = self.sessions_dir / f"{session_name}.session"
         if not path.exists():
-            raise ValueError("Файл session не найден.")
+            raise ValueError("Р¤Р°Р№Р» session РЅРµ РЅР°Р№РґРµРЅ.")
         return path
 
     def get_account_owner_id(self, session: str) -> int:
@@ -465,7 +465,7 @@ class AccountManager:
             return int(entry.get("owner_id", self.shared_owner_id))
         if self._session_exists_locally(session_name) or any(managed.session_name == session_name for managed in self._clients):
             return self.shared_owner_id
-        raise ValueError("Аккаунт не найден.")
+        raise ValueError("РђРєРєР°СѓРЅС‚ РЅРµ РЅР°Р№РґРµРЅ.")
 
     async def add_account(self, session: str, api_id: int, api_hash: str, *, owner_id: int | None = None) -> None:
         session_name = session.replace(".session", "").strip()
@@ -478,7 +478,7 @@ class AccountManager:
         config.setdefault("default", {})
         entries = config.setdefault("accounts", [])
         if any(str(item.get("session", "")).replace(".session", "") == session_name for item in entries):
-            raise ValueError("Аккаунт уже существует.")
+            raise ValueError("РђРєРєР°СѓРЅС‚ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚.")
         entries.append({
             "id": self._next_account_id(entries),
             "owner_id": int(owner_id or self.shared_owner_id),
@@ -513,7 +513,7 @@ class AccountManager:
         if new_api_hash is not None:
             cleaned_hash = new_api_hash.strip()
             if not cleaned_hash:
-                raise ValueError("api_hash не может быть пустым.")
+                raise ValueError("api_hash РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.")
             target["api_hash"] = cleaned_hash
         self._save_accounts_config(config)
         await self.load_clients()
@@ -574,7 +574,7 @@ class AccountManager:
         client = await self._authorized_client_for_session(session)
         value = first_name.strip()
         if not value:
-            raise ValueError("Имя не может быть пустым.")
+            raise ValueError("РРјСЏ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.")
         await client(UpdateProfileRequest(first_name=value))
         self._invalidate_status_cache()
         audit_event("accounts.profile_first_name_updated", message="Account first name updated", session=session)
@@ -682,7 +682,7 @@ class AccountManager:
         for managed in self._clients:
             if managed.session_name == session_name:
                 return managed
-        raise ValueError("Аккаунт не найден.")
+        raise ValueError("РђРєРєР°СѓРЅС‚ РЅРµ РЅР°Р№РґРµРЅ.")
 
     def _filter_clients(self, owner_ids: set[int] | None) -> list[ManagedClient]:
         if owner_ids is None:
@@ -787,7 +787,7 @@ class AccountManager:
     async def _authorized_client_for_session(self, session: str) -> TelegramClient:
         managed = self._find_managed_by_session(session)
         if not self._is_available_for_tasks(managed.session_name):
-            raise ValueError("Аккаунт недоступен для задач.")
+            raise ValueError("РђРєРєР°СѓРЅС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ РґР»СЏ Р·Р°РґР°С‡.")
         if not managed.client.is_connected():
             await managed.client.connect()
         if not await managed.client.is_user_authorized():
@@ -850,7 +850,7 @@ class AccountManager:
 
     @staticmethod
     def _account_state_icon(state: str) -> str:
-        return {ACCOUNT_STATE_ACTIVE: "✅", ACCOUNT_STATE_LIMITED: "🟡", ACCOUNT_STATE_DEAD: "🔴"}.get(state, "⚪")
+        return {ACCOUNT_STATE_ACTIVE: "✅", ACCOUNT_STATE_LIMITED: "🟡", ACCOUNT_STATE_DEAD: "🔴"}.get(state, "вљЄ")
 
     @staticmethod
     def _normalize_account_state(value: object) -> str:
@@ -909,9 +909,15 @@ class AccountManager:
                         spam_reason or "SpamBot: account is temporarily limited.",
                         dc_id=dc_id,
                     )
+                elif spam_status == "banned":
+                    await self.mark_banned(
+                        managed.session_name,
+                        spam_reason or "SpamBot: account is blocked.",
+                        dc_id=dc_id,
+                    )
                 elif spam_status == "alive":
                     await self.mark_alive(managed.session_name, dc_id=dc_id)
-                elif state.status != "limited":
+                elif state.status not in {"limited", "banned"}:
                     await self.mark_alive(managed.session_name, dc_id=dc_id)
                 else:
                     state.dc_id = dc_id if dc_id is not None else state.dc_id
@@ -980,7 +986,8 @@ class AccountManager:
 
     @staticmethod
     def _parse_spambot_response(text: str) -> tuple[str, str] | None:
-        normalized = re.sub(r"\s+", " ", (text or "").strip()).lower()
+        clean = re.sub(r"\s+", " ", (text or "").strip())
+        normalized = clean.lower()
         if not normalized:
             return None
 
@@ -992,6 +999,17 @@ class AccountManager:
         if any(marker in normalized for marker in free_markers):
             return "alive", ""
 
+        # Stable signal across locales for hard block messages.
+        if "telegram.org/tos" in normalized:
+            blocked_markers = (
+                "blocked",
+                "banned",
+                "заблокирован",
+                "заблокировали",
+            )
+            if any(marker in normalized for marker in blocked_markers):
+                return "banned", f"SpamBot: {clean[:240]}"
+
         limited_markers = (
             "ваш аккаунт временно ограничен",
             "к сожалению, это невозможно",
@@ -1001,9 +1019,9 @@ class AccountManager:
             "limitations will be automatically lifted",
         )
         if any(marker in normalized for marker in limited_markers):
-            clean = re.sub(r"\s+", " ", (text or "").strip())
             reason = f"SpamBot: {clean}"
             return "limited", reason[:240]
+
         return None
 
     def _build_status_row(
@@ -1163,7 +1181,7 @@ class AccountManager:
 
     @staticmethod
     def _health_icon(status: str) -> str:
-        return {"alive": "🟢", "limited": "🟡", "banned": "🔴"}.get(status, "⚪")
+        return {"alive": "🟢", "limited": "🟡", "banned": "🔴"}.get(status, "вљЄ")
 
     @staticmethod
     def _classify_health_exception(exc: Exception) -> tuple[str, str]:
@@ -1228,3 +1246,4 @@ class AccountManager:
         if phone:
             return f"session:{session_name} | {phone}"
         return f"session:{session_name}"
+

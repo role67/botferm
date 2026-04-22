@@ -13,7 +13,7 @@ DelayValue: TypeAlias = float | tuple[float, float]
 def parse_access_user_payload(raw_value: str, *, owner_user_id: int) -> tuple[int, str, int | None]:
     parts = raw_value.split()
     if not parts:
-        raise ValueError("Р¤РѕСЂРјР°С‚: telegram_id role [owner_scope_id]")
+        raise ValueError("Формат: telegram_id role [owner_scope_id]")
 
     telegram_id = parse_user_id(parts[0])
     if len(parts) == 1:
@@ -25,10 +25,10 @@ def parse_access_user_payload(raw_value: str, *, owner_user_id: int) -> tuple[in
     elif role in {"private_client", "private"}:
         role = ROLE_EXTERNAL
     if role not in {ROLE_OWNER, ROLE_ADMIN, ROLE_INTERNAL, ROLE_EXTERNAL}:
-        raise ValueError("Р РѕР»СЊ РґРѕР»Р¶РЅР° Р±С‹С‚СЊ РѕРґРЅРѕР№ РёР·: owner, admin, internal, external.")
+        raise ValueError("Роль должна быть одной из: owner, admin, internal, external.")
 
     if len(parts) > 3:
-        raise ValueError("Р¤РѕСЂРјР°С‚: telegram_id role [owner_scope_id]")
+        raise ValueError("Формат: telegram_id role [owner_scope_id]")
 
     if len(parts) == 3:
         owner_scope_id = parse_user_id(parts[2])
@@ -158,26 +158,26 @@ def parse_delay_value(raw_value: str, field_name: str) -> float:
     try:
         value = float(normalized)
     except ValueError as exc:
-        raise ValueError(f"{field_name} РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С‡РёСЃР»РѕРј РЅРµ РјРµРЅСЊС€Рµ 0. РњРѕР¶РЅРѕ 1,1 РёР»Рё 1.7.") from exc
+        raise ValueError(f"{field_name} должен быть числом не меньше 0. Можно 1,1 или 1.7.") from exc
 
     if value < 0:
-        raise ValueError(f"{field_name} РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С‡РёСЃР»РѕРј РЅРµ РјРµРЅСЊС€Рµ 0.")
+        raise ValueError(f"{field_name} должен быть числом не меньше 0.")
     return value
 
 
 def parse_delay_input(raw_value: str, field_name: str) -> DelayValue:
     normalized = raw_value.strip().replace(",", ".")
     if not normalized:
-        raise ValueError(f"{field_name} РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С‡РёСЃР»РѕРј РЅРµ РјРµРЅСЊС€Рµ 0.")
+        raise ValueError(f"{field_name} должен быть числом не меньше 0.")
 
     range_match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)", normalized)
     if range_match:
         min_value = float(range_match.group(1))
         max_value = float(range_match.group(2))
         if min_value < 0 or max_value < 0:
-            raise ValueError(f"{field_name} РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С‡РёСЃР»РѕРј РЅРµ РјРµРЅСЊС€Рµ 0.")
+            raise ValueError(f"{field_name} должен быть числом не меньше 0.")
         if min_value > max_value:
-            raise ValueError(f"Р’ РґРёР°РїР°Р·РѕРЅРµ {field_name} Р»РµРІР°СЏ РіСЂР°РЅРёС†Р° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ РїСЂР°РІРѕР№.")
+            raise ValueError(f"В диапазоне {field_name} левая граница не может быть больше правой.")
         return (min_value, max_value)
 
     return parse_delay_value(normalized, field_name)
@@ -188,15 +188,15 @@ def parse_join_payload(payload: str) -> tuple[str, int, DelayValue]:
     if len(parts) == 1:
         return parts[0].strip(), 1, 1.5
     if len(parts) != 3:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /join <СЃСЃС‹Р»РєР°> <N> <T>")
+        raise ValueError("Формат: /join <ссылка> <N> <T>")
 
     link = parts[0].strip()
 
     if not parts[1].isdigit():
-        raise ValueError("N РґР»СЏ /join РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј Р±РѕР»СЊС€Рµ 0.")
+        raise ValueError("N для /join должен быть целым числом больше 0.")
     count = int(parts[1])
     if count < 1:
-        raise ValueError("N РґР»СЏ /join РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј Р±РѕР»СЊС€Рµ 0.")
+        raise ValueError("N для /join должен быть целым числом больше 0.")
 
     delay_cap = parse_delay_input(parts[2], field_name="T РґР»СЏ /join")
     return link, count, delay_cap
@@ -207,15 +207,15 @@ def parse_leave_payload(payload: str) -> tuple[str, int, DelayValue]:
     if len(parts) == 1:
         return parts[0].strip(), 1, 1.5
     if len(parts) != 3:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /leave <СЃСЃС‹Р»РєР°> <N> <T>")
+        raise ValueError("Формат: /leave <ссылка> <N> <T>")
 
     link = parts[0].strip()
 
     if not parts[1].isdigit():
-        raise ValueError("N РґР»СЏ /leave РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј Р±РѕР»СЊС€Рµ 0.")
+        raise ValueError("N для /leave должен быть целым числом больше 0.")
     count = int(parts[1])
     if count < 1:
-        raise ValueError("N РґР»СЏ /leave РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј Р±РѕР»СЊС€Рµ 0.")
+        raise ValueError("N для /leave должен быть целым числом больше 0.")
 
     delay_cap = parse_delay_input(parts[2], field_name="T РґР»СЏ /leave")
     return link, count, delay_cap
@@ -224,7 +224,7 @@ def parse_leave_payload(payload: str) -> tuple[str, int, DelayValue]:
 def parse_refp_payload(payload: str) -> tuple[str, int, DelayValue]:
     parts = payload.split()
     if len(parts) != 3:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /refp <СЃСЃС‹Р»РєР°> <N> <T>")
+        raise ValueError("Формат: /refp <ссылка> <N> <T>")
 
     link = parts[0].strip()
     raw_count = parts[1]
@@ -236,15 +236,15 @@ def parse_refp_payload(payload: str) -> tuple[str, int, DelayValue]:
 def parse_vote_payload(payload: str) -> tuple[str, int, int, DelayValue]:
     parts = payload.split()
     if len(parts) != 4:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /vote <СЃСЃС‹Р»РєР°> <РїСѓРЅРєС‚> <N> <T>")
+        raise ValueError("Формат: /vote <ссылка> <пункт> <N> <T>")
 
     link = parts[0].strip()
 
     if not parts[1].isdigit():
-        raise ValueError("РџСѓРЅРєС‚ РґР»СЏ /vote РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј РѕС‚ 1 РґРѕ 12.")
+        raise ValueError("Пункт для /vote должен быть целым числом от 1 до 12.")
     option_index = int(parts[1])
     if option_index < 1 or option_index > 12:
-        raise ValueError("РџСѓРЅРєС‚ РґР»СЏ /vote РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј РѕС‚ 1 РґРѕ 12.")
+        raise ValueError("Пункт для /vote должен быть целым числом от 1 до 12.")
 
     count, delay = validate_count_delay(parts[2], parts[3], max_count=MAX_COUNT)
     return link, option_index, count, delay
@@ -253,7 +253,7 @@ def parse_vote_payload(payload: str) -> tuple[str, int, int, DelayValue]:
 def parse_birthday(value: str) -> tuple[int, int, int]:
     match = re.fullmatch(r"(\d{2})\.(\d{2})\.(\d{4})", value.strip())
     if not match:
-        raise ValueError("Р¤РѕСЂРјР°С‚ РґР°С‚С‹: Р”Р”.РњРњ.Р“Р“Р“Р“")
+        raise ValueError("Формат даты: ДД.ММ.ГГГГ")
 
     day = int(match.group(1))
     month = int(match.group(2))
@@ -287,7 +287,7 @@ def parse_msg_payload(payload: str, *, allow_empty_text: bool = False) -> tuple[
     parts = _split_command_parts(payload)
     parts, hide_content = _extract_hide_flag(parts)
     if len(parts) < 4:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /msg @user1 @user2 С‚РµРєСЃС‚ Р°РєРєР°СѓРЅС‚С‹ РїРѕРІС‚РѕСЂС‹ delay")
+        raise ValueError("Формат: /msg @user1 @user2 текст аккаунты повторы delay")
 
     accounts_count, repeat_count, delay = validate_accounts_repeat_delay(
         parts[-3],
@@ -311,7 +311,7 @@ def parse_msg_payload(payload: str, *, allow_empty_text: bool = False) -> tuple[
 
     text = " ".join(parts[index:-3]).strip()
     if not text and not allow_empty_text:
-        raise ValueError("РќСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ С‚РµРєСЃС‚ СЃРѕРѕР±С‰РµРЅРёСЏ.")
+        raise ValueError("Нужно указать текст сообщения.")
 
     targets = parse_targets(" ".join(target_tokens))
     return targets, text, accounts_count, repeat_count, delay, hide_content
@@ -320,7 +320,7 @@ def parse_msg_payload(payload: str, *, allow_empty_text: bool = False) -> tuple[
 def parse_msgbot_payload(payload: str) -> tuple[str, str, int, int, float]:
     parts = _split_command_parts(payload)
     if len(parts) < 5:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /msgbot @bot_username РєРѕРјР°РЅРґР° Р°РєРєР°СѓРЅС‚С‹ РїРѕРІС‚РѕСЂС‹ delay")
+        raise ValueError("Формат: /msgbot @bot_username команда аккаунты повторы delay")
 
     bot_username = normalize_username(parts[0])
     accounts_count, repeat_count, delay = validate_accounts_repeat_delay(
@@ -331,7 +331,7 @@ def parse_msgbot_payload(payload: str) -> tuple[str, str, int, int, float]:
 
     command = " ".join(parts[1:-3]).strip()
     if not command:
-        raise ValueError("РќСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ РєРѕРјР°РЅРґСѓ РёР»Рё С‚РµРєСЃС‚ РґР»СЏ Р±РѕС‚Р°.")
+        raise ValueError("Нужно указать команду или текст для бота.")
 
     return bot_username, command, accounts_count, repeat_count, delay
 
@@ -340,7 +340,7 @@ def parse_msgchat_payload(payload: str, *, allow_empty_text: bool = False) -> tu
     parts = _split_command_parts(payload)
     parts, hide_content = _extract_hide_flag(parts)
     if len(parts) < 4:
-        raise ValueError("Р¤РѕСЂРјР°С‚: /msgchat <С‡Р°С‚> С‚РµРєСЃС‚ Р°РєРєР°СѓРЅС‚С‹ РїРѕРІС‚РѕСЂС‹ delay")
+        raise ValueError("Формат: /msgchat <чат> текст аккаунты повторы delay")
 
     target = normalize_chat_target(parts[0])
     accounts_count, repeat_count, delay = validate_accounts_repeat_delay(
@@ -350,21 +350,21 @@ def parse_msgchat_payload(payload: str, *, allow_empty_text: bool = False) -> tu
     )
     text = " ".join(parts[1:-3]).strip()
     if not text and not allow_empty_text:
-        raise ValueError("РќСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ С‚РµРєСЃС‚ СЃРѕРѕР±С‰РµРЅРёСЏ.")
+        raise ValueError("Нужно указать текст сообщения.")
     return target, text, accounts_count, repeat_count, delay, hide_content
 
 
 def parse_account_add_payload(payload: str) -> tuple[str, str, str]:
     parts = payload.split(maxsplit=2)
     if len(parts) != 3 or any(not part.strip() for part in parts):
-        raise ValueError("Р¤РѕСЂРјР°С‚: session api_id api_hash")
+        raise ValueError("Формат: session api_id api_hash")
     return parts[0].strip(), parts[1].strip(), parts[2].strip()
 
 
 def parse_user_id(raw_value: str) -> int:
     value = raw_value.strip()
     if not re.fullmatch(r"\d{3,20}", value):
-        raise ValueError("РќСѓР¶РЅРѕ РѕС‚РїСЂР°РІРёС‚СЊ Telegram user ID С‡РёСЃР»РѕРј.")
+        raise ValueError("Нужно отправить Telegram user ID числом.")
     return int(value)
 
 
@@ -386,7 +386,7 @@ def normalize_username(value: str) -> str:
         cleaned = username
 
     if not re.fullmatch(r"[A-Za-z0-9_]{5,64}", cleaned):
-        raise ValueError(f"РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ СЋР·РµСЂРЅРµР№Рј: {value}")
+        raise ValueError(f"Некорректный юзернейм: {value}")
 
     return f"@{cleaned}"
 
@@ -399,9 +399,9 @@ def normalize_chat_target(value: str) -> str:
     raw = re.sub(r"^(?:www\.)?(?:t|telegram)\.me/", "", raw, flags=re.IGNORECASE)
     raw = raw.strip("/")
     if not raw:
-        raise ValueError("РќСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ СЃСЃС‹Р»РєСѓ РёР»Рё username С‡Р°С‚Р°.")
+        raise ValueError("Нужно указать ссылку или username чата.")
     if "/" in raw:
-        raise ValueError("Р”Р»СЏ /msgchat РЅСѓР¶РЅР° СЃСЃС‹Р»РєР° РЅР° С‡Р°С‚ РёР»Рё РєР°РЅР°Р», Р° РЅРµ РЅР° РѕС‚РґРµР»СЊРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ.")
+        raise ValueError("Для /msgchat нужна ссылка на чат или канал, а не на отдельное сообщение.")
     return normalize_username(raw)
 
 
@@ -411,16 +411,16 @@ def validate_accounts_repeat_delay(
     raw_delay: str,
 ) -> tuple[int, int, DelayValue]:
     if not raw_accounts.isdigit():
-        raise ValueError("РљРѕР»РёС‡РµСЃС‚РІРѕ Р°РєРєР°СѓРЅС‚РѕРІ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј Р±РѕР»СЊС€Рµ 0.")
+        raise ValueError("Количество аккаунтов должно быть целым числом больше 0.")
     accounts_count = int(raw_accounts)
     if accounts_count < 1 or accounts_count > MAX_COUNT:
-        raise ValueError(f"РљРѕР»РёС‡РµСЃС‚РІРѕ Р°РєРєР°СѓРЅС‚РѕРІ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РѕС‚ 1 РґРѕ {MAX_COUNT}.")
+        raise ValueError(f"Количество аккаунтов должно быть от 1 до {MAX_COUNT}.")
 
     if not raw_repeats.isdigit():
-        raise ValueError("РљРѕР»РёС‡РµСЃС‚РІРѕ РїРѕРІС‚РѕСЂРµРЅРёР№ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј РѕС‚ 1 РґРѕ 100.")
+        raise ValueError("Количество повторений должно быть целым числом от 1 до 100.")
     repeat_count = int(raw_repeats)
     if repeat_count < 1 or repeat_count > 100:
-        raise ValueError("РљРѕР»РёС‡РµСЃС‚РІРѕ РїРѕРІС‚РѕСЂРµРЅРёР№ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј РѕС‚ 1 РґРѕ 100.")
+        raise ValueError("Количество повторений должно быть целым числом от 1 до 100.")
 
     delay = parse_delay_input(raw_delay, field_name="T")
     return accounts_count, repeat_count, delay
@@ -428,11 +428,11 @@ def validate_accounts_repeat_delay(
 
 def validate_count_delay(raw_count: str, raw_delay: str, *, max_count: int) -> tuple[int, DelayValue]:
     if not raw_count.isdigit():
-        raise ValueError(f"count РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ С†РµР»С‹Рј С‡РёСЃР»РѕРј РІ РґРёР°РїР°Р·РѕРЅРµ 1..{max_count}.")
+        raise ValueError(f"count должен быть целым числом в диапазоне 1..{max_count}.")
 
     count = int(raw_count)
     if count < 1 or count > max_count:
-        raise ValueError(f"count РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РІ РґРёР°РїР°Р·РѕРЅРµ 1..{max_count}.")
+        raise ValueError(f"count должен быть в диапазоне 1..{max_count}.")
 
     delay = parse_delay_input(raw_delay, field_name="delay")
     return count, delay
