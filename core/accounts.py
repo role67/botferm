@@ -103,8 +103,11 @@ class AccountManager:
         if not self._health_monitor_task:
             return
         self._health_monitor_stop.set()
+        self._health_monitor_task.cancel()
         try:
             await self._health_monitor_task
+        except asyncio.CancelledError:
+            pass
         finally:
             self._health_monitor_task = None
 
@@ -112,10 +115,14 @@ class AccountManager:
         while not self._health_monitor_stop.is_set():
             try:
                 await self.list_accounts_status(force_refresh=True, include_spam_check=False)
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 logger.exception("Health monitor iteration failed")
             try:
                 await asyncio.wait_for(self._health_monitor_stop.wait(), timeout=interval_seconds)
+            except asyncio.CancelledError:
+                raise
             except asyncio.TimeoutError:
                 continue
 
